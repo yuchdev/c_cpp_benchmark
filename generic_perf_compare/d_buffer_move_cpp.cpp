@@ -5,6 +5,9 @@
 #include <cstring>
 #include <ctime>
 #include <utility>
+#include <iostream>
+#include <string>
+#include <chrono>
 
 #if defined(_MSC_VER)
 #define NOINLINE __declspec(noinline)
@@ -105,19 +108,30 @@ static double now_sec() {
     return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) / 1e9;
 }
 
-int main() {
-    const std::size_t size = 1u << 20; /* 1 MiB */
+int main(int argc, char** argv) {
+    std::size_t size = 1u << 20; /* 1 MiB */
+    if (argc > 1) {
+        try {
+            size = std::stoul(argv[1]);
+        } catch (...) {
+            return 1;
+        }
+    }
     const int rounds = 2000;
 
-    double t0 = now_sec();
-    std::uint64_t move_checksum = benchmark_move(size, rounds);
-    double t1 = now_sec();
-    std::uint64_t copy_checksum = benchmark_copy(size, rounds);
-    double t2 = now_sec();
+    auto t0 = std::chrono::high_resolution_clock::now();
+    benchmark_move(size, rounds);
+    auto t1 = std::chrono::high_resolution_clock::now();
 
-    std::printf("C++ move buffer checksum=%llu time=%.6f sec\n",
-                static_cast<unsigned long long>(move_checksum), t1 - t0);
-    std::printf("C++ copy buffer checksum=%llu time=%.6f sec\n",
-                static_cast<unsigned long long>(copy_checksum), t2 - t1);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    benchmark_copy(size, rounds);
+    auto t3 = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double> diff_move = t1 - t0;
+    std::chrono::duration<double> diff_copy = t3 - t2;
+
+    std::cout << "cpp buffer_move measure=" << size << " time=" << diff_move.count() << " sec" << std::endl;
+    std::cout << "cpp buffer_copy measure=" << size << " time=" << diff_copy.count() << " sec" << std::endl;
+
     return 0;
 }

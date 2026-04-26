@@ -4,7 +4,7 @@
 
 ---
 
-## Example 1 — Small Fixed-size Transpose (4×4): Eigen vs C
+## Example 1 - Small Fixed-size Transpose (4×4): Eigen vs C
 
 **Goal:** show that Eigen's fixed-size transpose emits a small, fully-unrolled sequence of moves, while the C version requires a loop with runtime bounds checks.
 
@@ -21,7 +21,7 @@ Mat4 transpose_fixed(const Mat4 &A) {
 }
 ```
 
-Expected assembly: 16 `movsd` or `vmovsd` instructions (one per element), fully unrolled — no branch, no loop counter.
+Expected assembly: 16 `movsd` or `vmovsd` instructions (one per element), fully unrolled - no branch, no loop counter.
 
 ### C (runtime loop)
 
@@ -40,7 +40,7 @@ Expected assembly: two nested loops with `imul`/`add` address arithmetic. The co
 
 ---
 
-## Example 2 — Fixed-size 4×4 Multiply: Eigen vs C
+## Example 2 - Fixed-size 4×4 Multiply: Eigen vs C
 
 **Goal:** compare assembly for the most common small-matrix operation.
 
@@ -76,7 +76,7 @@ Expected: ikj loop order allows some vectorisation but still emits a loop with b
 
 ---
 
-## Example 3 — Chained Expression A + B + C (Eigen Expression Templates)
+## Example 3 - Chained Expression A + B + C (Eigen Expression Templates)
 
 **Goal:** show that Eigen evaluates `A + B + C` in a single pass with no temporary matrix.
 
@@ -110,7 +110,7 @@ The C version in this project actually performs the addition in a single loop (`
 
 ---
 
-## Example 4 — Fused Multiply-Add A * B + C
+## Example 4 - Fused Multiply-Add A * B + C
 
 **Goal:** show `.noalias()` allows Eigen to skip an extra temporary.
 
@@ -127,7 +127,7 @@ void mul_add_noalias(const Eigen::MatrixXd &A,
 }
 ```
 
-Without `.noalias()`, Eigen must allocate a temporary result for `A * B` before adding `C` (to handle the aliasing case `Out = Out * B + Out`). With `.noalias()`, it can write directly into `Out` and then add `C` in place — one fewer allocation.
+Without `.noalias()`, Eigen must allocate a temporary result for `A * B` before adding `C` (to handle the aliasing case `Out = Out * B + Out`). With `.noalias()`, it can write directly into `Out` and then add `C` in place - one fewer allocation.
 
 ### C equivalent
 
@@ -145,7 +145,7 @@ The C version is structurally identical to the `.noalias()` Eigen version for th
 
 ---
 
-## Example 5 — Equivalent C Runtime Loops for Comparison
+## Example 5 - Equivalent C Runtime Loops for Comparison
 
 Use this minimal self-contained snippet on Compiler Explorer to compare codegen directly:
 

@@ -18,5 +18,6 @@ if(BUILD_GENERIC_BENCHMARKS)
 endif()
 
 if(BUILD_MATRIX_BENCHMARKS)
+  enable_testing()
   add_subdirectory(matrix_perf_compare)
 endif()

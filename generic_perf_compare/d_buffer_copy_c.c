@@ -1,8 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
 
 #if defined(_MSC_VER)
@@ -68,15 +68,18 @@ static double now_sec(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
 }
 
-int main(void) {
-    const size_t size = 1u << 20; /* 1 MiB */
+int main(int argc, char* argv[]) {
+    size_t size = 1u << 20; /* 1 MiB */
+    if (argc > 1) {
+        size = (size_t)atoll(argv[1]);
+        if (size == 0) return 1;
+    }
     const int rounds = 2000;
 
     double t0 = now_sec();
     uint64_t checksum = benchmark_copy(size, rounds);
     double t1 = now_sec();
 
-    printf("C deep-copy buffer checksum=%llu time=%.6f sec\n",
-           (unsigned long long)checksum, t1 - t0);
+    printf("c deep-copy measure=%zu time=%.6f sec\n", size, t1 - t0);
     return 0;
 }

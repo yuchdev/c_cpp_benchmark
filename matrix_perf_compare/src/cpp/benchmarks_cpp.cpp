@@ -102,14 +102,14 @@ static void bench_dynamic(int N, int warmup, int iters) {
         report(nm.c_str(), N, N, mul_iters, t);
         volatile double sink = Out(0,0); (void)sink;
     }
-    // add3  A + B + C  — Eigen fuses into single pass via expression templates
+    // add3  A + B + C  - Eigen fuses into single pass via expression templates
     {
         std::string nm = "cpp_dynamic_add3_" + std::to_string(N) + "x" + std::to_string(N);
         double t = run_benchmark([&]{ Out = A + B + C; }, warmup, iters);
         report(nm.c_str(), N, N, iters, t);
         volatile double sink = Out(0,0); (void)sink;
     }
-    // mul_add  A*B + C  — Eigen .noalias() avoids extra temporary
+    // mul_add  A*B + C  - Eigen .noalias() avoids extra temporary
     {
         std::string nm = "cpp_dynamic_mul_add_" + std::to_string(N) + "x" + std::to_string(N);
         double t = run_benchmark([&]{ Out.noalias() = A * B + C; }, 1, mul_iters);
@@ -207,19 +207,19 @@ static void bench_expr_fusion(int warmup, int iters) {
     Eigen::MatrixXd A(N,N), B(N,N), C(N,N), Out(N,N);
     fill_rand(A, 1); fill_rand(B, 2); fill_rand(C, 3);
 
-    // C = A^T * B  — fused: no temporary for transpose
+    // C = A^T * B  - fused: no temporary for transpose
     {
         double t = run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, warmup, iters);
         report("cpp_expr_AT_mul_B_128x128", N, N, iters, t);
         volatile double sink = Out(0,0); (void)sink;
     }
-    // C = A*B + D  — .noalias avoids extra copy
+    // C = A*B + D  - .noalias avoids extra copy
     {
         double t = run_benchmark([&]{ Out.noalias() = A * B + C; }, warmup, iters);
         report("cpp_expr_A_mul_B_add_C_128x128", N, N, iters, t);
         volatile double sink = Out(0,0); (void)sink;
     }
-    // G = A + B + C  — single traversal via expression templates
+    // G = A + B + C  - single traversal via expression templates
     {
         double t = run_benchmark([&]{ Out = A + B + C; }, warmup, iters);
         report("cpp_expr_A_add_B_add_C_128x128", N, N, iters, t);

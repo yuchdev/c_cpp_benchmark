@@ -1,7 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 #include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <ctime>
+#include <iostream>
+#include <string>
+#include <chrono>
 
 #if defined(_MSC_VER)
 #define NOINLINE __declspec(noinline)
@@ -52,11 +56,22 @@ static double now_sec() {
     return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) / 1e9;
 }
 
-int main() {
-    const int iters = 2000000;
-    double t0 = now_sec();
+int main(int argc, char** argv) {
+    int iters = 2000000;
+    if (argc > 1) {
+        try {
+            iters = std::stoi(argv[1]);
+        } catch (...) {
+            return 1;
+        }
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
     float result = kernel(iters);
-    double t1 = now_sec();
-    std::printf("C++ class/operator API result=%f time=%.6f sec\n", result, t1 - t0);
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double> diff = t1 - t0;
+    std::cout << "cpp class_operator measure=" << iters << " time=" << diff.count() << " sec" << std::endl;
+
     return 0;
 }

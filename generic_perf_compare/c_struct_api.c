@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -54,11 +55,15 @@ static double now_sec(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
 }
 
-int main(void) {
-    const int iters = 2000000;
+int main(int argc, char* argv[]) {
+    int iters = 2000000;
+    if (argc > 1) {
+        iters = atoi(argv[1]);
+        if (iters <= 0) return 1;
+    }
     double t0 = now_sec();
     float result = kernel(iters);
     double t1 = now_sec();
-    printf("C struct API result=%f time=%.6f sec\n", result, t1 - t0);
+    printf("c struct_api measure=%d time=%.6f sec\n", iters, t1 - t0);
     return 0;
 }

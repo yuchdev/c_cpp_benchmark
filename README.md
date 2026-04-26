@@ -1,41 +1,54 @@
 # C/C++ Benchmarks Collection
 
-This repository now contains a set of C/C++ benchmarks split into two families:
+This repository contains a comprehensive set of C/C++ benchmarks split into two families:
 
-1. **Generic programming-pattern benchmarks** (`generic_perf_compare`)
-2. **Matrix-operation benchmarks** (`matrix_perf_compare`)
-
----
-
-## 1) Generic benchmarks (`generic_perf_compare`)
-
-These are paired C and C++ micro-benchmarks.
-
-| Group | C source | C++ source | Focus |
-|---|---|---|---|
-| **a** | `a_qsort_c.c` | `a_std_sort_cpp.cpp` | `qsort` callback dispatch vs `std::sort` + lambda |
-| **b** | `b_callback_c.c` | `b_template_cpp.cpp` | Function-pointer callbacks vs template/lambda transforms |
-| **c** | `c_struct_api.c` | `c_class_operator.cpp` | C struct-style API vs C++ class operators/methods |
-| **d** | `d_buffer_copy_c.c` | `d_buffer_move_cpp.cpp` | Manual deep copy vs C++ copy/move semantics |
-| **e** | `e_runtime_table_c.c` | `e_constexpr_table_cpp.cpp` | Runtime lookup-table initialization vs `constexpr` compile-time table |
+1.  **Generic programming-pattern benchmarks** (`generic_perf_compare`)
+2.  **Matrix-operation benchmarks** (`matrix_perf_compare`)
 
 ---
 
-## 2) Matrix benchmarks (`matrix_perf_compare`)
+## 1. Generic Benchmarks (`generic_perf_compare`)
 
-This suite compares hand-written C matrix routines against C++ Eigen implementations.
+These are paired micro-benchmarks comparing equivalent C and C++ implementations of common programming patterns.
+
+| Group | C source              | C++ source                  | Focus                                                       |
+|:------|:----------------------|:----------------------------|:------------------------------------------------------------|
+| **a** | `a_qsort_c.c`         | `a_std_sort_cpp.cpp`        | `qsort` callback dispatch vs `std::sort` + lambda           |
+| **b** | `b_callback_c.c`      | `b_template_cpp.cpp`        | Function-pointer callbacks vs template/lambda transforms    |
+| **c** | `c_struct_api.c`      | `c_class_operator.cpp`      | C struct-style API vs C++ class operators/methods           |
+| **d** | `d_buffer_copy_c.c`   | `d_buffer_move_cpp.cpp`     | Manual deep copy vs C++ copy/move semantics (RAII)          |
+| **e** | `e_runtime_table_c.c` | `e_constexpr_table_cpp.cpp` | Runtime lookup-table init vs compile-time `constexpr` table |
+
+---
+
+## 2. Matrix Benchmarks (`matrix_perf_compare`)
+
+This suite compares handwritten C matrix routines against [Eigen](https://eigen.tuxfamily.org/) (a modern C++ linear algebra library) across a range of matrix sizes and operations.
 
 ### Scope
 
-- **C runtime matrices**
-- **C++ Eigen dynamic matrices**
-- **C++ Eigen fixed-size matrices**
+| Category           | What is benchmarked                                                                                         |
+|:-------------------|:------------------------------------------------------------------------------------------------------------|
+| **C (runtime)**    | Hand-written row-major `double` matrices; naive O(N³) multiply; `calloc`/`free` lifecycle                   |
+| **C++ Dynamic**    | `Eigen::MatrixXd` - heap-allocated, column-major, SIMD-optimised, expression-template fusion                |
+| **C++ Fixed-size** | `Eigen::Matrix<double, N, N>` - stack/register allocated, fully unrolled, maximum compile-time optimisation |
 
-Operations include transpose, add/sub/scale, matvec, multiply, transpose-multiply, and fused expressions. See `matrix_perf_compare/README.md` and `matrix_perf_compare/docs/` for methodology details.
+*   **Operations**: `transpose`, `add`, `sub`, `scale`, `matvec`, `mul`, `transpose_mul`, `add3`, `mul_add`.
+*   **Sizes**: 32×32, 128×128, 512×512 (dynamic); 3×3, 4×4, 8×8, 16×16 (fixed-size).
+
+### Methodology
+
+*   **Warmup**: 3 iterations before measurement.
+*   **Measurement**: 20 iterations averaged (fewer for large matrix multiply).
+*   **Timer**: `CLOCK_MONOTONIC` (C) / `std::chrono::high_resolution_clock` (C++).
+*   **Reproducibility**: Same LCG seed used for both C and C++ random values.
+*   **Optimization**: `-O2` for both C and C++.
 
 ---
 
-## Build (all benchmarks)
+## 3. Build Instructions
+
+CMake 3.16+ and a C11/C++17 compiler are required.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -44,24 +57,9 @@ cmake --build build -j
 
 ---
 
-## Run benchmarks
+## 4. Running Benchmarks
 
-### Generic: run one executable directly
-
-```bash
-./build/generic_perf_compare/benchmarks/c_struct_api
-./build/generic_perf_compare/benchmarks/c_class_operator_cpp
-```
-
-### Matrix: use existing suite runner
-
-```bash
-python3 matrix_perf_compare/scripts/run_all.py --build-dir build/matrix_perf_compare --results-dir matrix_perf_compare/results
-```
-
----
-
-## Unified benchmark runner + visualization-friendly outputs
+### Unified Runner (Recommended)
 
 Use the repository-level script to run **both generic and matrix** benchmarks and write tabular outputs suitable for plotting.
 
@@ -69,11 +67,66 @@ Use the repository-level script to run **both generic and matrix** benchmarks an
 python3 scripts/run_all_benchmarks.py --build-dir build --output-dir benchmark_results --repeats 5
 ```
 
-Outputs:
+#### Advanced Testing Strategies
 
-- `benchmark_results/runs.csv` - long-format per-run timing table
-- `benchmark_results/summary.csv` - grouped summary (mean/min/max/stdev)
-- `benchmark_results/runs.json` - same per-run data in JSON
+The runner supports flexible workload sizing via sequences or geometric progressions:
+
+```bash
+# Sequence of specific sizes
+python3 scripts/run_all_benchmarks.py --build-dir build --sort "1000,10000,100000"
+
+# Geometric progression (start, xMultiplier, steps)
+python3 scripts/run_all_benchmarks.py --build-dir build --buffer "1048576,x2,4"
+```
+
+#### Representative Test Defaults
+
+To get the most representative results (balancing cache effects and execution time), the following strategies are recommended:
+
+| Group | Parameter      | Recommended Strategy | Reasoning                                               |
+|:------|:---------------|:---------------------|:--------------------------------------------------------|
+| **a** | `--sort`       | `1000000`            | Exceeds L3 cache (16MB), represents DRAM-bound sorting. |
+| **b** | `--callback`   | `10000000`           | Measures micro-overhead of dispatch.                    |
+| **c** | `--struct-api` | `10000000`           | Measures member access overhead.                        |
+| **d** | `--buffer`     | `1048576`            | Fits in L3 (1MB), highlights move vs copy speed.        |
+| **e** | `--table`      | `10000000`           | Measures branching and constant-time lookup.            |
+
+Example command for representative run:
+```bash
+python3 scripts/run_all_benchmarks.py --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000
+```
+
+### Individual Execution
+
+You can also run benchmarks directly:
+
+```bash
+# Generic
+./build/generic_perf_compare/benchmarks/a_std_sort_cpp 1000000
+
+# Matrix
+./build/matrix_perf_compare/project/c_matrix_bench results/c_results.csv
+```
+
+---
+
+## 5. Outputs
+
+The unified runner produces the following artifacts in `--output-dir`:
+
+- `runs.csv` - Long-format per-run timing table.
+- `summary.csv` - Grouped summary statistics (mean, min, max, stdev).
+- `runs.json` - Averaged results across repeats in JSON format.
+- `results_{group}.csv` - Group-specific CSV files (e.g., `results_a.csv`).
+
+---
+
+## 6. Interpretation Guidance
+
+- **Ratio (C / C++) > 1.0x**: C is slower than C++.
+- **Fixed-size vs Dynamic**: Eigen's fixed-size matrices (N ≤ 16) often show 2–10x gains due to loop unrolling and stack allocation.
+- **Matrix Multiply**: Eigen's blocked algorithms typically outperform naive C loops by 5–20x for N=512.
+- **Element-wise Ops**: Usually memory-bandwidth bound; expect ratios close to 1.0x for large matrices.
 
 ---
 

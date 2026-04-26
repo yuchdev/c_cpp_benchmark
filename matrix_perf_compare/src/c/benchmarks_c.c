@@ -139,7 +139,7 @@ static void run_size(size_t N, int warmup, int iters) {
         volatile double sink = ctx.y[0]; (void)sink;
         matrix_destroy(&ctx.a); free(ctx.x); free(ctx.y);
     }
-    /* mul — fewer iterations for large N */
+    /* mul - fewer iterations for large N */
     int mul_iters = (N >= 256) ? (iters / 4 < 1 ? 1 : iters / 4) : iters;
     {
         CtxBinary ctx;

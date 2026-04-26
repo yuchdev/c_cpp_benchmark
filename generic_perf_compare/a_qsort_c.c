@@ -1,6 +1,9 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <time.h>
 
 typedef struct {
     uint64_t ts;
@@ -33,10 +36,34 @@ uint64_t sort_orders(Order* data, size_t n) {
     return sum;
 }
 
-int main(void) {
-    Order data[8] = {
-        {9, 4, 10}, {3, 2, 11}, {7, 1, 12}, {3, 1, 13},
-        {8, 8, 14}, {1, 9, 15}, {5, 7, 16}, {5, 3, 17}
-    };
-    return (int)sort_orders(data, 8);
+static double now_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+int main(int argc, char* argv[]) {
+    size_t n = 1000000;
+    if (argc > 1) {
+        n = (size_t)atoll(argv[1]);
+        if (n == 0) return 1;
+    }
+
+    Order* data = (Order*)malloc(n * sizeof(Order));
+    if (!data) return 1;
+
+    for (size_t i = 0; i < n; ++i) {
+        data[i].ts = (uint64_t)(n - i);
+        data[i].id = (uint32_t)i;
+        data[i].qty = (uint32_t)(i * 10);
+    }
+
+    double t0 = now_sec();
+    sort_orders(data, n);
+    double t1 = now_sec();
+
+    printf("c sort measure=%zu time=%.6f sec\n", n, t1 - t0);
+
+    free(data);
+    return 0;
 }

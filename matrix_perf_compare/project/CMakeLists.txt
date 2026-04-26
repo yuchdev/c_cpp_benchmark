@@ -9,9 +9,7 @@ if(NOT Eigen3_FOUND)
   include(FetchContent)
   FetchContent_Declare(
     eigen
-    GIT_REPOSITORY https://github.com/libeigen/eigen.git
-    GIT_TAG        3.4.0
-    GIT_SHALLOW    TRUE
+    URL      https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
   )
   set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
   set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)

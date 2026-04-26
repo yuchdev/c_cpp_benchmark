@@ -1,7 +1,10 @@
 #include <algorithm>
-#include <array>
+#include <vector>
 #include <cstdint>
 #include <cstddef>
+#include <iostream>
+#include <string>
+#include <chrono>
 
 struct Order {
     std::uint64_t ts;
@@ -27,10 +30,27 @@ std::uint64_t sort_orders(Order* data, std::size_t n) {
     return sum;
 }
 
-int main() {
-    std::array<Order, 8> data{{
-        {9, 4, 10}, {3, 2, 11}, {7, 1, 12}, {3, 1, 13},
-        {8, 8, 14}, {1, 9, 15}, {5, 7, 16}, {5, 3, 17}
-    }};
-    return static_cast<int>(sort_orders(data.data(), data.size()));
+int main(int argc, char** argv) {
+    size_t n = 1000000;
+    if (argc > 1) {
+        try {
+            n = std::stoul(argv[1]);
+        } catch (...) {
+            return 1;
+        }
+    }
+
+    std::vector<Order> data(n);
+    for (size_t i = 0; i < n; ++i) {
+        data[i] = { (uint64_t)(n - i), (uint32_t)i, (uint32_t)(i * 10) };
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    sort_orders(data.data(), data.size());
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double> diff = t1 - t0;
+    std::cout << "cpp sort measure=" << n << " time=" << diff.count() << " sec" << std::endl;
+
+    return 0;
 }

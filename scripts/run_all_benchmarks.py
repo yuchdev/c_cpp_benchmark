@@ -11,8 +11,9 @@ import math
 import statistics
 import subprocess
 import time
+import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 #: Generic benchmark definitions as ``(group, language, executable_name)`` tuples.
@@ -77,36 +78,125 @@ def run_cmd(cmd: List[str]) -> None:
         raise RuntimeError(f"Command failed with code {result.returncode}: {' '.join(cmd)}")
 
 
-def run_generic(build_dir: Path, repeats: int, rows: List[Dict[str, object]]) -> None:
+class TestingStrategy:
+    """Represents a testing strategy as a sequence of sizes or a progression.
+    
+    Formats:
+    - Sequence: "1000,10000,100000"
+    - Progression: "start,multiplier,steps" e.g., "10000,x10,5"
+    """
+    def __init__(self, sizes: List[int]):
+        self.sizes = sizes
+
+    @classmethod
+    def parse(cls, value: str) -> TestingStrategy:
+        if not value:
+            raise argparse.ArgumentTypeError("value must not be empty")
+        
+        # Check for progression format: start,xMult,steps
+        if "x" in value and "," in value:
+            parts = [p.strip() for p in value.split(",")]
+            if len(parts) == 3 and parts[1].startswith("x"):
+                try:
+                    start = int(parts[0])
+                    mult_str = parts[1][1:]
+                    multiplier = float(mult_str) if "." in mult_str else int(mult_str)
+                    steps = int(parts[2])
+                    
+                    sizes = []
+                    current = start
+                    for _ in range(steps):
+                        sizes.append(int(current))
+                        current *= multiplier
+                    return cls(sizes)
+                except ValueError as exc:
+                    raise argparse.ArgumentTypeError(f"Invalid progression format: {value}") from exc
+
+        # Fallback to sequence format
+        try:
+            sizes = []
+            for item in value.split(","):
+                item = item.strip()
+                if not item: continue
+                val = int(item)
+                if val <= 0:
+                    raise argparse.ArgumentTypeError(f"value must be positive: {val}")
+                sizes.append(val)
+            
+            if not sizes:
+                raise argparse.ArgumentTypeError("No valid sizes found")
+            
+            # Validate non-decreasing
+            if any(sizes[i] > sizes[i+1] for i in range(len(sizes) - 1)):
+                 raise argparse.ArgumentTypeError(f"values must be in non-decreasing order: {sizes}")
+            
+            return cls(sizes)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"Invalid sequence format: {value}") from exc
+
+    def __iter__(self):
+        return iter(self.sizes)
+
+
+def run_generic(build_dir: Path, repeats: int, rows: List[Dict[str, object]], sizing: Dict[str, TestingStrategy]) -> None:
     """Execute generic benchmark binaries and collect wall-clock timings.
 
     :param build_dir: Build directory where benchmark executables are located.
     :param repeats: Number of timing runs per benchmark executable.
     :param rows: Mutable row collection where run records are appended.
+    :param sizing: Optional dictionary mapping group to TestingStrategy.
     :returns: ``None``.
     :raises FileNotFoundError: If a benchmark executable cannot be located.
     :raises RuntimeError: If a benchmark process is terminated by a signal.
     """
     for group, lang, exe_name in GENERIC_BENCHMARKS:
         exe = find_executable(build_dir, exe_name)
-        for run_index in range(1, repeats + 1):
-            t0 = time.perf_counter()
-            result = subprocess.run([str(exe)], check=False, capture_output=True, text=True)
-            t1 = time.perf_counter()
-            if result.returncode < 0:
-                raise RuntimeError(f"{exe_name} terminated by signal {-result.returncode}: {result.stderr.strip()}")
-            rows.append(
-                {
+        
+        # Determine sizes to run
+        strategy = sizing.get(group)
+        sizes = list(strategy) if strategy else [None]
+        
+        for size in sizes:
+            cmd = [str(exe)]
+            if size is not None:
+                cmd.append(str(size))
+                
+            for run_index in range(1, repeats + 1):
+                result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+                if result.returncode < 0:
+                    raise RuntimeError(f"{exe_name} terminated by signal {-result.returncode}: {result.stderr.strip()}")
+                
+                # Parse output for measure and time
+                # Example: "cpp sort measure=1000000 time=0.045678 sec"
+                output = result.stdout.strip()
+                measure = size
+                value = None
+                
+                # Match lines like "... measure=123 time=0.456 sec"
+                match = re.search(r"measure=(\d+)\s+time=([\d.]+)", output)
+                if match:
+                    measure = int(match.group(1))
+                    value = float(match.group(2))
+                
+                # Validation: ensure the benchmark actually used the requested size
+                if size is not None and measure != size:
+                    print(f"Warning: {exe_name} requested size {size} but reported measure {measure}", file=sys.stderr)
+                
+                # Fallback to group name if exe name starts with group_
+                benchmark_name = exe_name
+                
+                row = {
                     "suite": "generic",
                     "group": group,
-                    "benchmark": exe_name,
+                    "benchmark": benchmark_name,
                     "language": lang,
                     "run": run_index,
+                    "measure": measure,
                     "metric": "wall_time_sec",
-                    "value": t1 - t0,
+                    "value": value if value is not None else 0.0,
                     "unit": "sec",
                 }
-            )
+                rows.append(row)
 
 
 def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]]) -> None:
@@ -139,6 +229,7 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]])
                         "benchmark": row["name"],
                         "language": lang,
                         "run": 1,
+                        "measure": int(row["rows"]),
                         "metric": "avg_ns",
                         "value": float(row["avg_ns"]),
                         "unit": "ns",
@@ -150,33 +241,76 @@ def write_outputs(rows: List[Dict[str, object]], output_dir: Path) -> None:
     """Write benchmark run rows and aggregate summaries to disk.
 
     :param rows: Flat list of benchmark sample rows.
-    :param output_dir: Destination directory for ``runs.csv``, ``summary.csv``,
-        and ``runs.json``.
+    :param output_dir: Destination directory for results.
     :returns: ``None``.
-    :raises OSError: If output files or directories cannot be written.
-    :raises ValueError: If statistics functions receive invalid numeric inputs.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     runs_csv = output_dir / "runs.csv"
-    summary_csv = output_dir / "summary.csv"
     runs_json = output_dir / "runs.json"
 
-    fieldnames = ["suite", "group", "benchmark", "language", "run", "metric", "value", "unit"]
+    fieldnames = ["suite", "group", "benchmark", "language", "run", "measure", "metric", "value", "unit"]
+    
+    # Save all data to runs.csv
     with runs_csv.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
+    # Separate CSV for each type (group)
+    groups = set(row["group"] for row in rows)
+    for group in groups:
+        group_rows = [row for row in rows if row["group"] == group]
+        group_csv = output_dir / f"results_{group}.csv"
+        with group_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(group_rows)
+
+    # Prepare data for runs.json (averaging repeats)
+    grouped_for_json: Dict[tuple, List[float]] = {}
+    for row in rows:
+        # Key: (suite, group, benchmark, language, measure, metric, unit)
+        key = (row["suite"], row["group"], row["benchmark"], row["language"], row["measure"], row["metric"], row["unit"])
+        grouped_for_json.setdefault(key, []).append(float(row["value"]))
+
+    json_rows = []
+    for key, values in grouped_for_json.items():
+        json_rows.append({
+            "suite": key[0],
+            "group": key[1],
+            "benchmark": key[2],
+            "language": key[3],
+            "measure": key[4],
+            "metric": key[5],
+            "value": sum(values) / len(values),
+            "unit": key[6],
+            "samples": len(values)
+        })
+
+    # Save averaged data to runs.json
+    with runs_json.open("w", encoding="utf-8") as f:
+        json.dump(json_rows, f, indent=2)
+
+    # Generate summary
+    summary_csv = output_dir / "summary.csv"
     grouped: Dict[tuple, List[float]] = {}
     for row in rows:
-        key = (row["suite"], row["group"], row["benchmark"], row["language"], row["metric"], row["unit"])
+        key = (row["suite"], row["group"], row["benchmark"], row["language"], row["measure"], row["metric"], row["unit"])
         grouped.setdefault(key, []).append(float(row["value"]))
 
-    summary_fields = ["suite", "group", "benchmark", "language", "metric", "unit", "samples", "mean", "min", "max", "stdev"]
+    summary_fields = ["suite", "group", "benchmark", "language", "measure", "metric", "unit", "samples", "mean", "min", "max", "stdev"]
     with summary_csv.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=summary_fields)
         writer.writeheader()
-        for key in sorted(grouped.keys()):
+        
+        def sort_key(k):
+            # (suite, group, benchmark, language, measure, metric, unit)
+            measure = k[4]
+            if measure is None:
+                measure = 0
+            return (k[0], k[1], k[2], k[3], measure)
+
+        for key in sorted(grouped.keys(), key=sort_key):
             values = grouped[key]
             stdev = statistics.stdev(values) if len(values) > 1 else 0.0
             writer.writerow(
@@ -185,8 +319,9 @@ def write_outputs(rows: List[Dict[str, object]], output_dir: Path) -> None:
                     "group": key[1],
                     "benchmark": key[2],
                     "language": key[3],
-                    "metric": key[4],
-                    "unit": key[5],
+                    "measure": key[4],
+                    "metric": key[5],
+                    "unit": key[6],
                     "samples": len(values),
                     "mean": statistics.mean(values),
                     "min": min(values),
@@ -194,9 +329,6 @@ def write_outputs(rows: List[Dict[str, object]], output_dir: Path) -> None:
                     "stdev": stdev if not math.isnan(stdev) else 0.0,
                 }
             )
-
-    with runs_json.open("w", encoding="utf-8") as f:
-        json.dump(rows, f, indent=2)
 
 
 def main() -> int:
@@ -214,6 +346,13 @@ def main() -> int:
     parser.add_argument("--repeats", type=int, default=5, help="Repeat count for generic executable timing")
     parser.add_argument("--skip-generic", action="store_true", help="Skip generic benchmarks")
     parser.add_argument("--skip-matrix", action="store_true", help="Skip matrix benchmarks")
+
+    parser.add_argument("--sort", type=TestingStrategy.parse, help="Vector sizes for sort benchmarks (group a)")
+    parser.add_argument("--callback", type=TestingStrategy.parse, help="Iteration counts for callback benchmarks (group b)")
+    parser.add_argument("--struct-api", type=TestingStrategy.parse, help="Iteration counts for struct API benchmarks (group c)")
+    parser.add_argument("--buffer", type=TestingStrategy.parse, help="Buffer sizes for copy/move benchmarks (group d)")
+    parser.add_argument("--table", type=TestingStrategy.parse, help="Iteration counts for table benchmarks (group e)")
+
     args = parser.parse_args()
 
     if args.repeats < 1:
@@ -222,9 +361,25 @@ def main() -> int:
     build_dir = Path(args.build_dir).resolve()
     output_dir = Path(args.output_dir).resolve()
 
+    if output_dir.exists() and any(output_dir.iterdir()):
+        import shutil
+        print(f"Cleaning output directory: {output_dir}")
+        for item in output_dir.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+
+    sizing = {}
+    if args.sort: sizing["a"] = args.sort
+    if args.callback: sizing["b"] = args.callback
+    if args.struct_api: sizing["c"] = args.struct_api
+    if args.buffer: sizing["d"] = args.buffer
+    if args.table: sizing["e"] = args.table
+
     rows: List[Dict[str, object]] = []
     if not args.skip_generic:
-        run_generic(build_dir, args.repeats, rows)
+        run_generic(build_dir, args.repeats, rows, sizing)
     if not args.skip_matrix:
         run_matrix(build_dir, output_dir, rows)
     write_outputs(rows, output_dir)

@@ -30,7 +30,7 @@ static inline void matrix_set(Matrix *m, size_t r, size_t c, double v) {
 void matrix_fill_zero(Matrix *m);
 void matrix_fill_rand(Matrix *m, unsigned int seed);   /* deterministic pseudo-random */
 
-/* Basic operations — out must be pre-allocated with correct size */
+/* Basic operations - out must be pre-allocated with correct size */
 void matrix_transpose(const Matrix *a, Matrix *out);    /* out: a->cols x a->rows */
 void matrix_add(const Matrix *a, const Matrix *b, Matrix *out);
 void matrix_sub(const Matrix *a, const Matrix *b, Matrix *out);
