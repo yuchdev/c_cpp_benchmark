@@ -7,6 +7,18 @@ This repository contains a comprehensive set of C/C++ benchmarks split into two 
 
 ---
 
+## Quick Start
+
+Get results for all benchmarks with a single command (requires Python 3 and CMake):
+
+```bash
+python3 scripts/run_all_benchmarks.py --build-dir build --output-dir benchmark_results
+```
+
+The script will automatically configure (via CMake), build, and execute all benchmarks, saving results to the `benchmark_results` directory.
+
+---
+
 ## 1. Generic Benchmarks (`generic_perf_compare`)
 
 These are paired micro-benchmarks comparing equivalent C and C++ implementations of common programming patterns.
@@ -93,7 +105,7 @@ To get the most representative results (balancing cache effects and execution ti
 
 Example command for representative run:
 ```bash
-python3 scripts/run_all_benchmarks.py --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000
+python3 scripts/run_all_benchmarks.py --skip-matrix --build-dir cmake-build --output-dir benchmark-results --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000
 ```
 
 ### Individual Execution
@@ -118,6 +130,23 @@ The unified runner produces the following artifacts in `--output-dir`:
 - `summary.csv` - Grouped summary statistics (mean, min, max, stdev).
 - `runs.json` - Averaged results across repeats in JSON format.
 - `results_{group}.csv` - Group-specific CSV files (e.g., `results_a.csv`).
+
+### Report Compilation
+
+After running benchmarks, you can generate a human-readable Markdown report:
+
+```bash
+python3 scripts/compile_report.py benchmark_results --output-format md --output-file report.md
+```
+
+#### Filtering Results
+
+You can filter which results to include in the report using `--suites`, `--groups`, or `--benchmarks`:
+
+```bash
+# Only include group 'a' and 'b' from the generic suite
+python3 scripts/compile_report.py benchmark_results --groups a,b
+```
 
 ---
 

@@ -53,17 +53,38 @@ def find_executable(build_dir: Path, name: str) -> Path:
         build_dir / "matrix_perf_compare" / "project" / name,
         build_dir / name,
     ]
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
-        if (candidate.with_suffix(".exe")).exists():
-            return candidate.with_suffix(".exe")
+    if build_dir.exists():
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+            if (candidate.with_suffix(".exe")).exists():
+                return candidate.with_suffix(".exe")
 
-    wildcard = f"{name}*"
-    for path in build_dir.rglob(wildcard):
-        if path.is_file() and path.stem == name:
-            return path
+        wildcard = f"{name}*"
+        for path in build_dir.rglob(wildcard):
+            if path.is_file() and path.stem == name:
+                return path
+
     raise FileNotFoundError(f"Could not find executable '{name}' under {build_dir}")
+
+
+def build_project(build_dir: Path) -> None:
+    """Run CMake configure and build to generate missing executables.
+
+    :param build_dir: Root build directory to build.
+    :raises RuntimeError: If the build fails.
+    """
+    project_root = Path(__file__).parent.parent.resolve()
+    
+    if not (build_dir / "CMakeCache.txt").exists():
+        print(f"Initializing build directory {build_dir}...")
+        build_dir.mkdir(parents=True, exist_ok=True)
+        # Using Release build type by default for benchmarks
+        run_cmd(["cmake", "-S", str(project_root), "-B", str(build_dir), "-DCMAKE_BUILD_TYPE=Release"])
+
+    print(f"Triggering build in {build_dir}...")
+    # Using 'cmake --build <dir>' which is the standard cross-platform way
+    run_cmd(["cmake", "--build", str(build_dir)])
 
 
 def run_cmd(cmd: List[str]) -> None:
@@ -149,9 +170,21 @@ def run_generic(build_dir: Path, repeats: int, rows: List[Dict[str, object]], si
     :raises FileNotFoundError: If a benchmark executable cannot be located.
     :raises RuntimeError: If a benchmark process is terminated by a signal.
     """
+    did_build = False
     for group, lang, exe_name in GENERIC_BENCHMARKS:
-        exe = find_executable(build_dir, exe_name)
-        
+        try:
+            exe = find_executable(build_dir, exe_name)
+        except FileNotFoundError:
+            if not did_build:
+                try:
+                    build_project(build_dir)
+                    did_build = True
+                    exe = find_executable(build_dir, exe_name)
+                except (RuntimeError, FileNotFoundError) as e:
+                    raise FileNotFoundError(f"Could not find or build executable '{exe_name}': {e}") from e
+            else:
+                raise
+
         # Determine sizes to run
         strategy = sizing.get(group)
         sizes = list(strategy) if strategy else [None]
@@ -214,8 +247,21 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]])
     raw_dir = output_dir / "matrix_raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
+    did_build = False
     for lang, exe_name, csv_name in MATRIX_BENCHMARKS:
-        exe = find_executable(build_dir, exe_name)
+        try:
+            exe = find_executable(build_dir, exe_name)
+        except FileNotFoundError:
+            if not did_build:
+                try:
+                    build_project(build_dir)
+                    did_build = True
+                    exe = find_executable(build_dir, exe_name)
+                except (RuntimeError, FileNotFoundError) as e:
+                    raise FileNotFoundError(f"Could not find or build executable '{exe_name}': {e}") from e
+            else:
+                raise
+
         out_csv = raw_dir / csv_name
         run_cmd([str(exe), str(out_csv)])
 
