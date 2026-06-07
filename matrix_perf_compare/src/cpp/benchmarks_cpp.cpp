@@ -1,4 +1,21 @@
+/*
+ * C++ (Eigen) matrix benchmark driver.
+ *
+ * Represents the "aggressively optimized modern C++" side.  Built with
+ * -O3 -march=native -funroll-loops and full Eigen vectorisation
+ * (AVX2 + FMA on this host), it exploits several distinct aspects of
+ * matrix performance:
+ *
+ *   - SIMD element-wise kernels (add / sub / scale / add3)
+ *   - vectorised + FMA mat-vec and blocked GEMM (mul / transpose_mul)
+ *   - expression-template fusion (add3, mul_add) avoiding temporaries
+ *   - compile-time fixed-size matrices (registers, full unrolling)
+ *
+ * The CLI is shared verbatim with the C driver via bench_options.h.
+ */
 #include "cpp_matrix/eigen_ops.hpp"
+#include "bench_options.h"
+#include "bench_report.h"
 #include <Eigen/Dense>
 #include <chrono>
 #include <cstdio>
@@ -6,11 +23,9 @@
 #include <cstdlib>
 #include <string>
 #include <functional>
-#include <vector>
+#include <algorithm>
 
-using Clock = std::chrono::high_resolution_clock;
-
-static FILE *g_csv = nullptr;
+using Clock = std::chrono::steady_clock;
 
 static double now_ns() {
     return static_cast<double>(
@@ -18,7 +33,8 @@ static double now_ns() {
             Clock::now().time_since_epoch()).count());
 }
 
-static double run_benchmark(std::function<void()> fn, int warmup, int iters) {
+template <typename F>
+static double run_once(F &&fn, int warmup, int iters) {
     for (int i = 0; i < warmup; ++i) fn();
     double t0 = now_ns();
     for (int i = 0; i < iters; ++i) fn();
@@ -26,15 +42,21 @@ static double run_benchmark(std::function<void()> fn, int warmup, int iters) {
     return (t1 - t0) / iters;
 }
 
-static void report(const char *name, int rows, int cols, int iters, double avg_ns) {
-    std::printf("%-55s  %4dx%-4d  iters=%3d  avg=%10.1f ns\n",
-                name, rows, cols, iters, avg_ns);
-    if (g_csv)
-        std::fprintf(g_csv, "%s,%d,%d,%d,%.1f\n", name, rows, cols, iters, avg_ns);
+/* Best-of-repeats average (minimises OS scheduling jitter). */
+template <typename F>
+static double run_benchmark(F &&fn, int warmup, int iters, int repeats) {
+    double best = -1.0;
+    for (int r = 0; r < repeats; ++r) {
+        double t = run_once(fn, warmup, iters);
+        if (best < 0.0 || t < best) best = t;
+    }
+    return best;
 }
 
-// Fill dynamic Eigen matrix with same LCG as C version
-static void fill_rand(Eigen::MatrixXd &m, unsigned int seed) {
+// Fill an Eigen matrix using the same LCG as the C version so that the two
+// languages operate on identical data.
+template <typename Derived>
+static void fill_rand(Eigen::MatrixBase<Derived> &m, unsigned int seed) {
     unsigned int s = seed;
     for (int r = 0; r < m.rows(); ++r)
         for (int c = 0; c < m.cols(); ++c) {
@@ -43,226 +65,118 @@ static void fill_rand(Eigen::MatrixXd &m, unsigned int seed) {
         }
 }
 
-// ---- Group A: Dynamic matrices ----
+// ---- Group A: dynamic matrices (Eigen::MatrixXd) ----
 
-static void bench_dynamic(int N, int warmup, int iters) {
-    Eigen::MatrixXd A(N, N), B(N, N), C(N, N), D(N, N), Out(N, N);
+static void run_dynamic_op(BenchReport &rp, const BenchOptions &o,
+                           const std::string &op, int N) {
+    if (!bench_op_enabled(&o, op.c_str())) return;
+
+    const int iters  = bench_iters_for(&o, op.c_str(), (size_t)N);
+    const int warmup = (bench_op_is_heavy(op.c_str()) && N >= 256)
+                       ? std::min(o.warmup, 1) : o.warmup;
+    const std::string nm = "cpp_dynamic_" + op + "_" + std::to_string(N) + "x" + std::to_string(N);
+
+    Eigen::MatrixXd A(N, N), B(N, N), C(N, N), Out(N, N);
     Eigen::VectorXd x(N), y(N);
-    fill_rand(A, 1); fill_rand(B, 2); fill_rand(C, 3); fill_rand(D, 4);
+    fill_rand(A, o.seed); fill_rand(B, o.seed + 1u); fill_rand(C, o.seed + 2u);
     for (int i = 0; i < N; ++i) x(i) = i * 0.001;
 
-    int mul_iters = (N >= 256) ? std::max(1, iters / 4) : iters;
+    double t = 0.0;
+    if (op == "transpose")
+        t = run_benchmark([&]{ Out.noalias() = A.transpose(); }, warmup, iters, o.repeats);
+    else if (op == "add")
+        t = run_benchmark([&]{ Out.noalias() = A + B; }, warmup, iters, o.repeats);
+    else if (op == "sub")
+        t = run_benchmark([&]{ Out.noalias() = A - B; }, warmup, iters, o.repeats);
+    else if (op == "scale")
+        t = run_benchmark([&]{ Out.noalias() = A * 2.5; }, warmup, iters, o.repeats);
+    else if (op == "matvec")
+        t = run_benchmark([&]{ y.noalias() = A * x; }, warmup, iters, o.repeats);
+    else if (op == "mul")
+        t = run_benchmark([&]{ Out.noalias() = A * B; }, warmup, iters, o.repeats);
+    else if (op == "transpose_mul")
+        t = run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, warmup, iters, o.repeats);
+    else if (op == "add3")
+        t = run_benchmark([&]{ Out.noalias() = A + B + C; }, warmup, iters, o.repeats);
+    else if (op == "mul_add")
+        t = run_benchmark([&]{ Out.noalias() = A * B + C; }, warmup, iters, o.repeats);
+    else
+        return;
 
-    // transpose
-    {
-        std::string nm = "cpp_dynamic_transpose_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A.transpose(); }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // add
-    {
-        std::string nm = "cpp_dynamic_add_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A + B; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // sub
-    {
-        std::string nm = "cpp_dynamic_sub_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A - B; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // scale
-    {
-        std::string nm = "cpp_dynamic_scale_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A * 2.5; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // matvec
-    {
-        std::string nm = "cpp_dynamic_matvec_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ y.noalias() = A * x; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = y(0); (void)sink;
-    }
-    // mul
-    {
-        std::string nm = "cpp_dynamic_mul_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A * B; }, 1, mul_iters);
-        report(nm.c_str(), N, N, mul_iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // transpose_mul  A^T * B
-    {
-        std::string nm = "cpp_dynamic_transpose_mul_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, 1, mul_iters);
-        report(nm.c_str(), N, N, mul_iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // add3  A + B + C  - Eigen fuses into single pass via expression templates
-    {
-        std::string nm = "cpp_dynamic_add3_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out = A + B + C; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // mul_add  A*B + C  - Eigen .noalias() avoids extra temporary
-    {
-        std::string nm = "cpp_dynamic_mul_add_" + std::to_string(N) + "x" + std::to_string(N);
-        double t = run_benchmark([&]{ Out.noalias() = A * B + C; }, 1, mul_iters);
-        report(nm.c_str(), N, N, mul_iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
+    bench_report_row(&rp, nm.c_str(), N, N, iters, t);
+    volatile double sink = Out(0, 0) + y(0); (void)sink;
 }
 
-// ---- Group B: Fixed-size matrices ----
+// ---- Group B: fixed-size matrices (compile-time N) ----
 
 template <int N>
-static void bench_fixed(int warmup, int iters) {
+static void run_fixed(BenchReport &rp, const BenchOptions &o) {
     using Mat = Eigen::Matrix<double, N, N>;
     using Vec = Eigen::Matrix<double, N, 1>;
 
     Mat A, B, C, Out;
     Vec x, y;
-    // fill with LCG
-    {
-        unsigned int s = 1;
-        for (int r = 0; r < N; ++r) for (int c = 0; c < N; ++c) {
-            s = s * 1664525u + 1013904223u;
-            A(r,c) = static_cast<double>(static_cast<int>(s >> 8) % 10000) * 0.0001;
-        }
-        s = 2;
-        for (int r = 0; r < N; ++r) for (int c = 0; c < N; ++c) {
-            s = s * 1664525u + 1013904223u;
-            B(r,c) = static_cast<double>(static_cast<int>(s >> 8) % 10000) * 0.0001;
-        }
-        s = 3;
-        for (int r = 0; r < N; ++r) for (int c = 0; c < N; ++c) {
-            s = s * 1664525u + 1013904223u;
-            C(r,c) = static_cast<double>(static_cast<int>(s >> 8) % 10000) * 0.0001;
-        }
-        for (int i = 0; i < N; ++i) x(i) = i * 0.001;
-    }
+    fill_rand(A, o.seed); fill_rand(B, o.seed + 1u); fill_rand(C, o.seed + 2u);
+    for (int i = 0; i < N; ++i) x(i) = i * 0.001;
 
-    std::string sz = std::to_string(N) + "x" + std::to_string(N);
+    const std::string sz = std::to_string(N) + "x" + std::to_string(N);
+    const int it = o.iters;
 
-    // transpose
-    {
-        std::string nm = "cpp_fixed_transpose_" + sz;
-        double t = run_benchmark([&]{ Out = A.transpose(); }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // add
-    {
-        std::string nm = "cpp_fixed_add_" + sz;
-        double t = run_benchmark([&]{ Out = A + B; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // mul
-    {
-        std::string nm = "cpp_fixed_mul_" + sz;
-        double t = run_benchmark([&]{ Out.noalias() = A * B; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // matvec
-    {
-        std::string nm = "cpp_fixed_matvec_" + sz;
-        double t = run_benchmark([&]{ y.noalias() = A * x; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = y(0); (void)sink;
-    }
-    // add3  (expression template fusion)
-    {
-        std::string nm = "cpp_fixed_add3_" + sz;
-        double t = run_benchmark([&]{ Out = A + B + C; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // transpose_mul
-    {
-        std::string nm = "cpp_fixed_transpose_mul_" + sz;
-        double t = run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // mul_add  A*B + C
-    {
-        std::string nm = "cpp_fixed_mul_add_" + sz;
-        double t = run_benchmark([&]{ Out.noalias() = A * B + C; }, warmup, iters);
-        report(nm.c_str(), N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-}
+    auto emit = [&](const char *op, double t) {
+        std::string nm = std::string("cpp_fixed_") + op + "_" + sz;
+        bench_report_row(&rp, nm.c_str(), N, N, it, t);
+    };
 
-// ---- Group C: Expression template / fusion demo ----
+    if (bench_op_enabled(&o, "transpose"))
+        emit("transpose", run_benchmark([&]{ Out.noalias() = A.transpose(); }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "add"))
+        emit("add", run_benchmark([&]{ Out.noalias() = A + B; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "sub"))
+        emit("sub", run_benchmark([&]{ Out.noalias() = A - B; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "scale"))
+        emit("scale", run_benchmark([&]{ Out.noalias() = A * 2.5; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "matvec"))
+        emit("matvec", run_benchmark([&]{ y.noalias() = A * x; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "mul"))
+        emit("mul", run_benchmark([&]{ Out.noalias() = A * B; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "transpose_mul"))
+        emit("transpose_mul", run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "add3"))
+        emit("add3", run_benchmark([&]{ Out.noalias() = A + B + C; }, o.warmup, it, o.repeats));
+    if (bench_op_enabled(&o, "mul_add"))
+        emit("mul_add", run_benchmark([&]{ Out.noalias() = A * B + C; }, o.warmup, it, o.repeats));
 
-static void bench_expr_fusion(int warmup, int iters) {
-    int N = 128;
-    Eigen::MatrixXd A(N,N), B(N,N), C(N,N), Out(N,N);
-    fill_rand(A, 1); fill_rand(B, 2); fill_rand(C, 3);
-
-    // C = A^T * B  - fused: no temporary for transpose
-    {
-        double t = run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, warmup, iters);
-        report("cpp_expr_AT_mul_B_128x128", N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // C = A*B + D  - .noalias avoids extra copy
-    {
-        double t = run_benchmark([&]{ Out.noalias() = A * B + C; }, warmup, iters);
-        report("cpp_expr_A_mul_B_add_C_128x128", N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
-    // G = A + B + C  - single traversal via expression templates
-    {
-        double t = run_benchmark([&]{ Out = A + B + C; }, warmup, iters);
-        report("cpp_expr_A_add_B_add_C_128x128", N, N, iters, t);
-        volatile double sink = Out(0,0); (void)sink;
-    }
+    volatile double sink = Out(0, 0) + y(0); (void)sink;
 }
 
 int main(int argc, char *argv[]) {
-    const char *csv_path = (argc > 1) ? argv[1] : "results/cpp_results.csv";
+    BenchOptions o;
+    if (bench_parse_args(&o, argc, argv) != 0) return 2;
+    if (o.help)     { bench_print_usage(argv[0], stdout); return 0; }
+    if (o.list_ops) { bench_list_ops(stdout); return 0; }
 
-    system("mkdir -p results");
+    if (!o.csv_enabled) {
+        std::system("mkdir -p results");
+        std::strncpy(o.csv_path, "results/cpp_results.csv", BENCH_PATH_LEN - 1);
+        o.csv_enabled = 1;
+    }
 
-    g_csv = std::fopen(csv_path, "w");
-    if (g_csv)
-        std::fprintf(g_csv, "name,rows,cols,iterations,avg_ns\n");
-    else
-        std::fprintf(stderr, "Warning: could not open %s for writing\n", csv_path);
+    BenchReport rp;
+    bench_report_begin(&rp, &o, "C++ (Eigen) Matrix Benchmark");
 
-    std::printf("=== C++ (Eigen) Matrix Benchmark ===\n\n");
-    std::printf("%-55s  %9s  %8s  %14s\n", "Benchmark", "Size", "Iters", "Avg Time");
-    std::printf("%-55s  %9s  %8s  %14s\n",
-                "-------------------------------------------------------",
-                "---------", "--------", "--------------");
+    bench_report_section(&rp, "Group A: Dynamic matrices");
+    for (int si = 0; si < o.num_sizes; ++si)
+        for (int oi = 0; oi < BENCH_NUM_ALL_OPS; ++oi)
+            run_dynamic_op(rp, o, BENCH_ALL_OPS[oi], (int)o.sizes[si]);
 
-    int warmup = 3, iters = 20;
+    if (o.fixed_enabled) {
+        bench_report_section(&rp, "Group B: Fixed-size matrices");
+        run_fixed<3>(rp, o);
+        run_fixed<4>(rp, o);
+        run_fixed<8>(rp, o);
+        run_fixed<16>(rp, o);
+    }
 
-    std::printf("\n--- Group A: Dynamic matrices ---\n");
-    bench_dynamic(32,  warmup, iters);
-    std::printf("\n");
-    bench_dynamic(128, warmup, iters);
-    std::printf("\n");
-    bench_dynamic(512, warmup, iters / 2);
-
-    std::printf("\n--- Group B: Fixed-size matrices ---\n");
-    bench_fixed<3>(warmup, iters);
-    bench_fixed<4>(warmup, iters);
-    bench_fixed<8>(warmup, iters);
-    bench_fixed<16>(warmup, iters);
-
-    std::printf("\n--- Group C: Expression template fusion ---\n");
-    bench_expr_fusion(warmup, 5);
-
-    if (g_csv) std::fclose(g_csv);
-    std::printf("\nResults written to %s\n", csv_path);
+    bench_report_end(&rp, &o);
     return 0;
 }

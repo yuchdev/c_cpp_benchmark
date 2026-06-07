@@ -24,11 +24,16 @@ The benchmark compares hand-written C matrix routines against Eigen (a widely-us
 Each benchmark follows this sequence:
 
 1. **Setup** - allocate and fill matrices with the same deterministic LCG values.
-2. **Warmup** - run the operation 3 times (configurable via `WARMUP_ITERS`). This brings data into CPU caches and exercises the branch predictor, so the first measurement is not penalised by cold-start effects.
-3. **Measurement** - run the operation `MEASURE_ITERS` (default 20) times and record wall-clock time using `CLOCK_MONOTONIC` (C) or `std::chrono::high_resolution_clock` (C++).
-4. **Average** - divide total elapsed nanoseconds by iteration count to get `avg_ns`.
+2. **Warmup** - run the operation `--warmup` times (default 3). This brings data into CPU caches and exercises the branch predictor, so the first measurement is not penalised by cold-start effects.
+3. **Measurement** - run the operation `--iters` (default 20) times and record wall-clock time using `CLOCK_MONOTONIC` (C) or `std::chrono::steady_clock` (C++).
+4. **Best-of-repeats** - the measurement loop is repeated `--repeats` times and the *minimum* average is kept, which suppresses one-sided OS scheduling jitter.
+5. **Average** - divide total elapsed nanoseconds by iteration count to get `avg_ns`.
 
-Matrix multiplication at sizes ≥ 256 uses only `iters / 4` measurement iterations because even a single 512×512 multiply takes tens of milliseconds.
+Matrix multiplication at sizes ≥ 256 uses only `iters / --heavy-divisor` (default ÷4) measurement iterations because even a single 512×512 multiply takes tens of milliseconds.
+
+All of these knobs — sizes, operations, warmup, iterations, repeats, seed, output
+format — are controllable from the command line; see
+[`matrix_optimization.md`](matrix_optimization.md) for the full CLI reference.
 
 ---
 
@@ -39,7 +44,7 @@ To ensure a fair comparison:
 - **Same element type** - all matrices use `double` (64-bit IEEE 754 floating point).
 - **Same matrix dimensions** - both C and C++ dynamic benchmarks run at N = 32, 128, 512.
 - **Same initialisation** - the same linear-congruential generator (LCG constants `1664525` / `1013904223`) is used in both C (`matrix_fill_rand`) and C++ (`fill_rand`), seeded identically.
-- **Same optimisation level** - both are compiled with `-O2`.
+- **Optimisation policy** - the C side is a *portable* baseline compiled with `-O2` (no machine-specific tuning), while the C++ side is *aggressively* optimised (`-O3 -march=native -funroll-loops -ffp-contract=fast`, full Eigen SIMD/FMA). This is a deliberate "portable C vs optimised modern C++" framing; set `-DMATRIX_CPP_AGGRESSIVE=OFF` to compile both at `-O2` for a flag-equal comparison. See [`matrix_optimization.md`](matrix_optimization.md).
 - **No I/O inside the timed region** - CSV writing and `printf` happen outside the measured loop.
 - **Anti-optimisation sinks** - after each benchmark a `volatile` read of an output element prevents the compiler from eliminating the entire computation as dead code.
 

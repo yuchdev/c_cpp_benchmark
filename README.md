@@ -46,15 +46,24 @@ This suite compares handwritten C matrix routines against [Eigen](https://eigen.
 | **C++ Fixed-size** | `Eigen::Matrix<double, N, N>` - stack/register allocated, fully unrolled, maximum compile-time optimisation |
 
 *   **Operations**: `transpose`, `add`, `sub`, `scale`, `matvec`, `mul`, `transpose_mul`, `add3`, `mul_add`.
-*   **Sizes**: 32×32, 128×128, 512×512 (dynamic); 3×3, 4×4, 8×8, 16×16 (fixed-size).
+*   **Sizes**: fully configurable (default 32×32, 128×128, 512×512 dynamic; 3×3, 4×4, 8×8, 16×16 fixed-size).
+
+### Flexible CLI
+
+Both `c_matrix_bench` and `cpp_matrix_bench` share the same options:
+`--sizes` (list or `start:xMUL:steps` progression), `--ops`, `--warmup`,
+`--iters`, `--repeats`, `--heavy-divisor`, `--seed`, `--csv`,
+`--format table|csv|json`, `--no-fixed`, `--list-ops`, `--help`. Run
+`./cpp_matrix_bench --help` for details. See
+[docs/matrix_optimization.md](docs/matrix_optimization.md).
 
 ### Methodology
 
-*   **Warmup**: 3 iterations before measurement.
-*   **Measurement**: 20 iterations averaged (fewer for large matrix multiply).
-*   **Timer**: `CLOCK_MONOTONIC` (C) / `std::chrono::high_resolution_clock` (C++).
+*   **Warmup**: `--warmup` iterations (default 3) before measurement.
+*   **Measurement**: `--iters` iterations averaged (default 20; fewer for large multiply via `--heavy-divisor`), best of `--repeats`.
+*   **Timer**: `CLOCK_MONOTONIC` (C) / `std::chrono::steady_clock` (C++).
 *   **Reproducibility**: Same LCG seed used for both C and C++ random values.
-*   **Optimization**: `-O2` for both C and C++.
+*   **Optimization**: portable `-O2` for C vs aggressive `-O3 -march=native` (AVX2/FMA, Eigen SIMD) for C++; toggle with `-DMATRIX_CPP_AGGRESSIVE`.
 
 ---
 
