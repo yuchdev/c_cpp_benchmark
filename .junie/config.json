@@ -1,0 +1,13 @@
+{
+  "brave": true,
+  "auto-update": true,
+  "time-limit": 3600,
+  "skill-default-locations": true,
+  "agent-default-location": true,
+  "command-default-locations": true,
+  "mcp-default-locations": true,
+  "guidelines-location": ".junie/AGENTS.md",
+  "skill-locations": [".junie/skills"],
+  "agent-locations": [".junie/agents"],
+  "command-locations": [".junie/commands"]
+}
