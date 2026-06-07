@@ -28,8 +28,8 @@ These are paired micro-benchmarks comparing equivalent C and C++ implementations
 | **a** | `a_qsort_c.c`         | `a_std_sort_cpp.cpp`        | `qsort` callback dispatch vs `std::sort` + lambda           |
 | **b** | `b_callback_c.c`      | `b_template_cpp.cpp`        | Function-pointer callbacks vs template/lambda transforms    |
 | **c** | `c_struct_api.c`      | `c_class_operator.cpp`      | C struct-style API vs C++ class operators/methods           |
-| **d** | `d_buffer_copy_c.c`   | `d_buffer_move_cpp.cpp`     | Manual deep copy vs C++ copy/move semantics (RAII)          |
-| **e** | `e_runtime_table_c.c` | `e_constexpr_table_cpp.cpp` | Runtime lookup-table init vs compile-time `constexpr` table |
+| **d** | `d_buffer_copy_c.c`   | `d_buffer_move_cpp.cpp`     | Cache locality: C Array-of-Structs vs C++ Structure-of-Arrays traversal |
+| **e** | `e_runtime_table_c.c` | `e_constexpr_table_cpp.cpp` | Runtime multi-round S-box transform vs compile-time `constexpr` table fusion |
 
 ---
 
@@ -63,8 +63,8 @@ This suite compares handwritten C matrix routines against [Eigen](https://eigen.
 CMake 3.16+ and a C11/C++17 compiler are required.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build -j
 ```
 
 ---
@@ -100,10 +100,12 @@ To get the most representative results (balancing cache effects and execution ti
 | **a** | `--sort`       | `1000000`            | Exceeds L3 cache (16MB), represents DRAM-bound sorting. |
 | **b** | `--callback`   | `10000000`           | Measures micro-overhead of dispatch.                    |
 | **c** | `--struct-api` | `10000000`           | Measures member access overhead.                        |
-| **d** | `--buffer`     | `1048576`            | Fits in L3 (1MB), highlights move vs copy speed.        |
-| **e** | `--table`      | `10000000`           | Measures branching and constant-time lookup.            |
+| **d** | `--buffer`     | `262144`             | Record count `N`; SoA hot set (~1MB) fits L3 while AoS (~16MB) is DRAM-bound. |
+| **e** | `--table`      | `16777216`           | Dataset size in bytes; C applies the rounds at runtime, C++ fuses them at compile time into one lookup. |
+
 
 Example command for representative run:
+
 ```bash
 python3 scripts/run_all_benchmarks.py --skip-matrix --build-dir cmake-build --output-dir benchmark-results --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000
 ```

@@ -1,4 +1,4 @@
-# When C++ Is Faster Than C: Five Benchmarks Explained
+# When C++ Is Faster Than C: Benchmarks Explained
 
 > *"C++ gives you the same low-level access as C, but also lets you express
 > intent to the compiler. Expressed intent is compiled away — leaving code

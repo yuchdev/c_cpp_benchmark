@@ -13,6 +13,26 @@
 #define NOINLINE __attribute__((noinline))
 #endif
 
+/*
+ * Group "c": C struct-style API vs C++ class operators/methods.
+ *
+ * This benchmark is about *member-access / operation dispatch* overhead.
+ *
+ * Here the data and its operations are expressed as a class with inline
+ * operators/methods (operator+, operator*, dot). Because every operation is
+ * known at compile time, the compiler inlines it directly into the loop body,
+ * keeps the Vec4 components in registers, and is then free to vectorize the
+ * whole kernel - there is no per-operation call at all.
+ *
+ * The matching C program (c_struct_api.c) models the classic C "object": a
+ * struct that carries its operations as function pointers (a hand-rolled
+ * vtable). Those pointers are opaque to the optimizer, so every member
+ * operation becomes a genuine, non-inlinable indirect call whose cost
+ * accumulates over the loop. That is exactly the gap this group highlights:
+ * C++ compile-time-resolved member operations run several times faster than an
+ * equivalent C "struct + function pointer" API.
+ */
+
 struct Vec4 {
     float x, y, z, w;
 

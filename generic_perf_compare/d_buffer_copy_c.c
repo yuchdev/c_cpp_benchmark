@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
+#include <assert.h>
 #include <time.h>
 
 #if defined(_MSC_VER)
@@ -11,55 +11,43 @@
 #define NOINLINE __attribute__((noinline))
 #endif
 
-typedef struct Buffer {
-    size_t size;
-    uint8_t* data;
-} Buffer;
+/*
+ * Group "d" benchmark: cache-locality, Array-of-Structs (AoS) vs Structure-of-Arrays (SoA).
+ *
+ * This C version uses the natural, idiomatic C layout: an array of fat records,
+ * one cache line each (64 B). The hot loop reads only the 4-byte "hot" field of
+ * every record, but because the records are interleaved, the traversal strides a
+ * full cache line per element -> the effective working set is N * 64 B, which
+ * far exceeds L3 and makes the loop DRAM-bandwidth bound.
+ *
+ * See docs/benchmark_d_redesign.md for the full design and the matching C++ (SoA)
+ * version (d_buffer_move_cpp.cpp).
+ */
 
-static Buffer buffer_create(size_t size) {
-    Buffer b;
-    b.size = size;
-    b.data = (uint8_t*)malloc(size);
-    if (!b.data) {
-        fprintf(stderr, "malloc failed\n");
-        exit(1);
+/* PASSES: how many times the array is traversed. Internal, machine-tuned so the
+ * C (AoS) run lands in ~0.2-1.0 s at the default N. Must match the C++ version. */
+#ifndef PASSES
+#define PASSES 96
+#endif
+
+typedef struct Record {        /* 64 bytes == one cache line */
+    float    hot;              /* the ONLY field the hot loop reads (4 B) */
+    uint8_t  cold[60];         /* cold payload, never touched in the loop (60 B) */
+} Record;
+
+/* The whole effect depends on the 64 B stride, so make it a hard requirement. */
+_Static_assert(sizeof(Record) == 64, "Record must be exactly one cache line");
+
+volatile double sink;          /* anti-dead-code-elimination: forces the loop to run */
+
+NOINLINE static double traverse_aos(const Record* recs, size_t n, int passes) {
+    double acc = 0.0;
+    for (int p = 0; p < passes; ++p) {
+        for (size_t i = 0; i < n; ++i) {
+            acc += (double)recs[i].hot;   /* strides 64 B -> 1 cache line / element */
+        }
     }
-    for (size_t i = 0; i < size; ++i) {
-        b.data[i] = (uint8_t)(i * 131u + 7u);
-    }
-    return b;
-}
-
-static void buffer_destroy(Buffer* b) {
-    free(b->data);
-    b->data = NULL;
-    b->size = 0;
-}
-
-static Buffer buffer_deep_copy(const Buffer* src) {
-    Buffer dst;
-    dst.size = src->size;
-    dst.data = (uint8_t*)malloc(dst.size);
-    if (!dst.data) {
-        fprintf(stderr, "malloc failed\n");
-        exit(1);
-    }
-    memcpy(dst.data, src->data, dst.size);
-    return dst;
-}
-
-NOINLINE static uint64_t benchmark_copy(size_t size, int rounds) {
-    Buffer seed = buffer_create(size);
-    uint64_t checksum = 0;
-
-    for (int i = 0; i < rounds; ++i) {
-        Buffer copy = buffer_deep_copy(&seed);
-        checksum += copy.data[(i * 17) % copy.size];
-        buffer_destroy(&copy);
-    }
-
-    buffer_destroy(&seed);
-    return checksum;
+    return acc;                            /* effective working set = n * 64 B (>> L3) */
 }
 
 static double now_sec(void) {
@@ -69,17 +57,33 @@ static double now_sec(void) {
 }
 
 int main(int argc, char* argv[]) {
-    size_t size = 1u << 20; /* 1 MiB */
+    size_t n = 262144;                     /* default N (~1 MB SoA hot set) */
     if (argc > 1) {
-        size = (size_t)atoll(argv[1]);
-        if (size == 0) return 1;
+        long long v = atoll(argv[1]);
+        if (v <= 0) return 1;
+        n = (size_t)v;
     }
-    const int rounds = 2000;
+    const int passes = PASSES;
+
+    Record* recs = (Record*)malloc(n * sizeof(Record));
+    if (!recs) {
+        fprintf(stderr, "malloc failed\n");
+        return 1;
+    }
+
+    /* Deterministic fill -- identical closed form in C and C++ (no RNG).
+     * cold[] is left arbitrary on purpose; the hot loop never reads it. */
+    for (size_t i = 0; i < n; ++i) {
+        recs[i].hot = (float)((i * 2654435761u) & 0xFFFF) * (1.0f / 65536.0f);
+    }
 
     double t0 = now_sec();
-    uint64_t checksum = benchmark_copy(size, rounds);
+    double acc = traverse_aos(recs, n, passes);
     double t1 = now_sec();
 
-    printf("c deep-copy measure=%zu time=%.6f sec\n", size, t1 - t0);
+    sink = acc;                            /* store result so the loop is not elided */
+    printf("c soa_traversal measure=%zu time=%.6f sec\n", n, t1 - t0);
+
+    free(recs);
     return 0;
 }

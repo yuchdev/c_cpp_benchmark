@@ -5,31 +5,43 @@
 #include <stdlib.h>
 #include <time.h>
 
+/*
+ * Group "b": function-pointer callback dispatch vs template/lambda transform.
+ *
+ * Here we transform a large buffer element-by-element. The C version must
+ * apply the operation through a *function pointer*. Crucially, the concrete
+ * target of that pointer is only known at run time (it is read out of a
+ * volatile global), so the compiler cannot devirtualize or inline it. As a
+ * result every single element pays the cost of a real, non-inlinable indirect
+ * call, and that micro-overhead adds up over the whole buffer.
+ *
+ * The matching C++ program (b_template_cpp.cpp) passes the same operation as a
+ * template argument (a lambda). Because the operation is known at compile time
+ * there, the compiler inlines it straight into the loop body and is then free
+ * to auto-vectorize the transform. This is exactly the kind of compile-time
+ * optimization where C++ pulls ahead of an equivalent C callback.
+ */
+
 static int transform_value(int x) {
     return x * 3 + 1;
 }
 
-void apply_transform(int* out, const int* in, size_t n, int (*op)(int)) {
+typedef int (*op_t)(int);
+
+/*
+ * Volatile global: the optimizer is not allowed to assume which function this
+ * points to, so a load of it yields an opaque value. Passing that opaque
+ * pointer into apply_transform forces a genuine indirect call per element.
+ */
+volatile op_t g_op = transform_value;
+
+void apply_transform(int* out, const int* in, size_t n, op_t op) {
     for (size_t i = 0; i < n; ++i) {
         out[i] = op(in[i]);
     }
 }
 
-volatile int sink;
-
-int run_apply(const int* in, size_t n) {
-    int out[64];
-    if (n > 64) n = 64;
-
-    apply_transform(out, in, n, transform_value);
-
-    int sum = 0;
-    for (size_t i = 0; i < n; ++i) {
-        sum += out[i];
-    }
-    sink = sum;
-    return sum;
-}
+volatile long long sink;
 
 static double now_sec(void) {
     struct timespec ts;
@@ -38,20 +50,42 @@ static double now_sec(void) {
 }
 
 int main(int argc, char* argv[]) {
-    int iters = 10000000;
+    size_t n = 10000000;
     if (argc > 1) {
-        iters = atoi(argv[1]);
-        if (iters <= 0) return 1;
+        long v = atol(argv[1]);
+        if (v <= 0) return 1;
+        n = (size_t)v;
     }
 
-    int in[8] = {1,2,3,4,5,6,7,8};
-    
-    double t0 = now_sec();
-    for (int i = 0; i < iters; ++i) {
-        run_apply(in, 8);
+    int* in = (int*)malloc(n * sizeof(int));
+    int* out = (int*)malloc(n * sizeof(int));
+    if (!in || !out) {
+        free(in);
+        free(out);
+        return 1;
     }
+
+    for (size_t i = 0; i < n; ++i) {
+        in[i] = (int)(i & 0xff);
+    }
+
+    /* Read the operation through the volatile global: its value is opaque to
+     * the optimizer, so the call below cannot be inlined or devirtualized. */
+    op_t op = g_op;
+
+    double t0 = now_sec();
+    apply_transform(out, in, n, op);
     double t1 = now_sec();
 
-    printf("c callback measure=%d time=%.6f sec\n", iters, t1 - t0);
+    long long sum = 0;
+    for (size_t i = 0; i < n; ++i) {
+        sum += out[i];
+    }
+    sink = sum;
+
+    printf("c callback measure=%zu time=%.6f sec\n", n, t1 - t0);
+
+    free(in);
+    free(out);
     return 0;
 }

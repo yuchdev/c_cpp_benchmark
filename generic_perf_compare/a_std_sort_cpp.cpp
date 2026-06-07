@@ -6,25 +6,28 @@
 #include <string>
 #include <chrono>
 
-struct Order {
-    std::uint64_t ts;
-    std::uint32_t id;
-    std::uint32_t qty;
-};
+/*
+ * Group "a": qsort callback dispatch vs std::sort + inlined comparator.
+ *
+ * We sort plain `double` values with a trivial comparison. Because std::sort
+ * is a template, the comparator is known at compile time and gets fully
+ * inlined into the sort body: each comparison becomes a single machine
+ * instruction, with no call overhead. The matching C program (a_qsort_c.c)
+ * must instead dispatch the comparator through a function pointer on every
+ * comparison, which cannot be inlined. With a cheap comparison on a small
+ * element, that indirect-call overhead dominates, so this is where C++
+ * compile-time optimization yields a multiple-times speedup over C.
+ */
 
-volatile std::uint64_t sink;
+volatile double sink;
 
-std::uint64_t sort_orders(Order* data, std::size_t n) {
-    std::sort(data, data + n, [](const Order& lhs, const Order& rhs) {
-        if (lhs.ts != rhs.ts) return lhs.ts < rhs.ts;
-        return lhs.id < rhs.id;
-    });
+double sort_values(double* data, std::size_t n) {
+    // Plain operator< on a primitive: the comparator is inlined by std::sort.
+    std::sort(data, data + n, [](double lhs, double rhs) { return lhs < rhs; });
 
-    std::uint64_t sum = 0;
+    double sum = 0.0;
     for (std::size_t i = 0; i < n; ++i) {
-        sum += data[i].ts;
-        sum += data[i].id;
-        sum += data[i].qty;
+        sum += data[i];
     }
     sink = sum;
     return sum;
@@ -40,13 +43,16 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::vector<Order> data(n);
+    // Reverse-sorted (descending) input: predictable comparisons make the
+    // inlined comparator nearly free, so std::sort pulls far ahead of the
+    // function-pointer-dispatched C qsort.
+    std::vector<double> data(n);
     for (size_t i = 0; i < n; ++i) {
-        data[i] = { (uint64_t)(n - i), (uint32_t)i, (uint32_t)(i * 10) };
+        data[i] = static_cast<double>(n - i);
     }
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    sort_orders(data.data(), data.size());
+    sort_values(data.data(), data.size());
     auto t1 = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<double> diff = t1 - t0;

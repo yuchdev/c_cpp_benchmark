@@ -2,11 +2,10 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
-#include <ctime>
-#include <utility>
-#include <iostream>
+#include <array>
+#include <vector>
 #include <string>
+#include <iostream>
 #include <chrono>
 
 #if defined(_MSC_VER)
@@ -15,123 +14,81 @@
 #define NOINLINE __attribute__((noinline))
 #endif
 
-class Buffer {
-public:
-    explicit Buffer(std::size_t size = 0) : size_(size), data_(size ? static_cast<std::uint8_t*>(std::malloc(size)) : nullptr) {
-        if (size_ && !data_) {
-            std::fprintf(stderr, "malloc failed\n");
-            std::exit(1);
-        }
-        for (std::size_t i = 0; i < size_; ++i) {
-            data_[i] = static_cast<std::uint8_t>(i * 131u + 7u);
-        }
-    }
+/*
+ * Group "d" benchmark: cache-locality, Array-of-Structs (AoS) vs Structure-of-Arrays (SoA).
+ *
+ * This C++ version uses a zero-cost Structure-of-Arrays view: the hot field lives
+ * in its own contiguous std::vector<float>, and the cold payload lives in a
+ * separate, parallel array the hot loop never touches. Reducing over the hot field
+ * walks a contiguous N * 4 B buffer (~1 MB for the default N), which stays
+ * L3/L2-resident and auto-vectorizes. The ergonomic abstraction yields a
+ * cache-optimal layout for free, whereas the idiomatic C struct array (AoS) forces
+ * a memory-bound layout.
+ *
+ * See docs/benchmark_d_redesign.md for the full design and the matching C (AoS)
+ * version (d_buffer_copy_c.c).
+ */
 
-    ~Buffer() { std::free(data_); }
+/* PASSES: how many times the array is traversed. Internal, machine-tuned so the
+ * C (AoS) run lands in ~0.2-1.0 s at the default N. Must match the C version. */
+#ifndef PASSES
+#define PASSES 96
+#endif
 
-    Buffer(const Buffer& other) : size_(other.size_), data_(other.size_ ? static_cast<std::uint8_t*>(std::malloc(other.size_)) : nullptr) {
-        if (size_ && !data_) {
-            std::fprintf(stderr, "malloc failed\n");
-            std::exit(1);
-        }
-        if (size_) std::memcpy(data_, other.data_, size_);
-    }
+/* Cold fields stored separately; the hot field is contiguous.
+ * This is the ergonomic, zero-cost "SoA view" of the same records. */
+struct RecordSoA {
+    std::vector<float>                  hot;   /* contiguous, ~N*4 B -> fits L3 */
+    std::vector<std::array<uint8_t,60>> cold;  /* parallel, untouched by hot loop */
 
-    Buffer& operator=(const Buffer& other) {
-        if (this == &other) return *this;
-        std::uint8_t* new_data = other.size_ ? static_cast<std::uint8_t*>(std::malloc(other.size_)) : nullptr;
-        if (other.size_ && !new_data) {
-            std::fprintf(stderr, "malloc failed\n");
-            std::exit(1);
-        }
-        if (other.size_) std::memcpy(new_data, other.data_, other.size_);
-        std::free(data_);
-        data_ = new_data;
-        size_ = other.size_;
-        return *this;
-    }
-
-    Buffer(Buffer&& other) noexcept : size_(other.size_), data_(other.data_) {
-        other.size_ = 0;
-        other.data_ = nullptr;
-    }
-
-    Buffer& operator=(Buffer&& other) noexcept {
-        if (this == &other) return *this;
-        std::free(data_);
-        data_ = other.data_;
-        size_ = other.size_;
-        other.data_ = nullptr;
-        other.size_ = 0;
-        return *this;
-    }
-
-    std::size_t size() const noexcept { return size_; }
-    const std::uint8_t* data() const noexcept { return data_; }
-
-private:
-    std::size_t size_;
-    std::uint8_t* data_;
+    explicit RecordSoA(std::size_t n) : hot(n), cold(n) {}
+    std::size_t size() const { return hot.size(); }
 };
 
-NOINLINE static Buffer passthrough_move(Buffer b) {
-    return b;
-}
+/* The cold element is the same 60 bytes as the C record's padding, so the two
+ * programs store byte-for-byte equivalent data -- only the layout differs. */
+static_assert(sizeof(std::array<uint8_t,60>) == 60, "cold payload must be 60 B");
 
-NOINLINE static Buffer passthrough_copy(const Buffer& b) {
-    return b;
-}
+volatile double sink;          /* anti-dead-code-elimination, mirrors the C version */
 
-NOINLINE static std::uint64_t benchmark_move(std::size_t size, int rounds) {
-    Buffer current(size);
-    std::uint64_t checksum = 0;
-    for (int i = 0; i < rounds; ++i) {
-        current = passthrough_move(std::move(current));
-        checksum += current.data()[(i * 17) % current.size()];
+template <class Reduce>
+NOINLINE double traverse_soa(const float* hot, std::size_t n, int passes, Reduce r) {
+    double acc = 0.0;
+    for (int p = 0; p < passes; ++p) {
+        for (std::size_t i = 0; i < n; ++i) {
+            acc = r(acc, hot[i]);          /* contiguous 4 B stride -> vectorizes */
+        }
     }
-    return checksum;
-}
-
-NOINLINE static std::uint64_t benchmark_copy(std::size_t size, int rounds) {
-    Buffer current(size);
-    std::uint64_t checksum = 0;
-    for (int i = 0; i < rounds; ++i) {
-        current = passthrough_copy(current);
-        checksum += current.data()[(i * 17) % current.size()];
-    }
-    return checksum;
-}
-
-static double now_sec() {
-    timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) / 1e9;
+    return acc;                            /* working set = n * 4 B (L3/L2 resident) */
 }
 
 int main(int argc, char** argv) {
-    std::size_t size = 1u << 20; /* 1 MiB */
+    std::size_t n = 262144;                /* default N (~1 MB hot set) */
     if (argc > 1) {
         try {
-            size = std::stoul(argv[1]);
+            long long v = std::stoll(argv[1]);
+            if (v <= 0) return 1;
+            n = static_cast<std::size_t>(v);
         } catch (...) {
             return 1;
         }
     }
-    const int rounds = 2000;
+    const int passes = PASSES;             /* same constant value as the C version */
+
+    RecordSoA recs(n);
+    /* Deterministic fill -- byte-for-byte the same closed form as the C version. */
+    for (std::size_t i = 0; i < n; ++i) {
+        recs.hot[i] = static_cast<float>((i * 2654435761u) & 0xFFFF) * (1.0f / 65536.0f);
+    }
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    benchmark_move(size, rounds);
+    double acc = traverse_soa(recs.hot.data(), n, passes,
+                              [](double a, float v) { return a + (double)v; });
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    auto t2 = std::chrono::high_resolution_clock::now();
-    benchmark_copy(size, rounds);
-    auto t3 = std::chrono::high_resolution_clock::now();
-
-    std::chrono::duration<double> diff_move = t1 - t0;
-    std::chrono::duration<double> diff_copy = t3 - t2;
-
-    std::cout << "cpp buffer_move measure=" << size << " time=" << diff_move.count() << " sec" << std::endl;
-    std::cout << "cpp buffer_copy measure=" << size << " time=" << diff_copy.count() << " sec" << std::endl;
-
+    sink = acc;                            /* store result so the loop is not elided */
+    std::chrono::duration<double> diff = t1 - t0;
+    std::cout << "cpp soa_traversal measure=" << n
+              << " time=" << diff.count() << " sec" << std::endl;
     return 0;
 }
