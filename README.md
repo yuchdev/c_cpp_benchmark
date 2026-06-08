@@ -159,6 +159,29 @@ You can filter which results to include in the report using `--suites`, `--group
 python3 scripts/compile_report.py benchmark_results --groups a,b
 ```
 
+### Visualization (Matplotlib)
+
+Generate publication-quality charts (one PNG per operation, an overall speedup
+bar chart, and a `summary.md`) from the results. Requires Matplotlib only
+(`python3 -m pip install matplotlib`):
+
+```bash
+# Plot an existing results directory
+python3 scripts/plot_results.py benchmark-results/runs.csv --out benchmark-results/plots
+
+# Or run benchmarks and plot in one step
+python3 scripts/run_all_benchmarks.py --build-dir build --output-dir benchmark-results --plot
+
+# Plot an already-completed run without re-running benchmarks
+python3 scripts/run_all_benchmarks.py --plot-only benchmark-results
+```
+
+Each chart shows C vs C++ as separate series with the average speedup embedded
+in the legend. Use `--chart bar` for grouped bars and `--article-mode` for
+840×420 images tuned for articles. See
+[docs/benchmark_visualization.md](docs/benchmark_visualization.md) for full
+details.
+
 ---
 
 ## 6. Interpretation Guidance

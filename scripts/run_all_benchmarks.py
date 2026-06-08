@@ -377,6 +377,41 @@ def write_outputs(rows: List[Dict[str, object]], output_dir: Path) -> None:
             )
 
 
+def plot_from_dir(results_dir: Path, plots_dir: Path, *, chart: str = "line",
+                  article_mode: bool = False) -> None:
+    """Generate plots from a completed benchmark-results directory.
+
+    The function prefers ``runs.csv`` and falls back to ``runs.json``.
+
+    :param results_dir: Directory containing ``runs.csv``/``runs.json``.
+    :param plots_dir: Destination directory for the generated plots.
+    :param chart: Per-operation chart style (``"line"`` or ``"bar"``).
+    :param article_mode: Enable Dev.to-optimized styling.
+    :raises FileNotFoundError: If no recognizable results file is found.
+    """
+    import plot_results
+
+    source = None
+    for candidate in ("runs.csv", "runs.json"):
+        path = results_dir / candidate
+        if path.exists():
+            source = path
+            break
+    if source is None:
+        raise FileNotFoundError(
+            f"No runs.csv or runs.json found in {results_dir}"
+        )
+
+    results = plot_results.load_results(source)
+    if not results:
+        print(f"Warning: no results parsed from {source}", file=sys.stderr)
+        return
+    written = plot_results.generate_all(
+        results, plots_dir, chart=chart, article_mode=article_mode
+    )
+    print(f"Generated {len(written)} plot artifacts in {plots_dir}")
+
+
 def main() -> int:
     """Parse CLI arguments, run selected benchmark suites, and export results.
 
@@ -399,7 +434,27 @@ def main() -> int:
     parser.add_argument("--buffer", type=TestingStrategy.parse, help="Buffer sizes for copy/move benchmarks (group d)")
     parser.add_argument("--table", type=TestingStrategy.parse, help="Iteration counts for table benchmarks (group e)")
 
+    # Visualization options.
+    parser.add_argument("--plot", action="store_true",
+                        help="Generate Matplotlib plots after the run completes")
+    parser.add_argument("--plot-only", metavar="DIR",
+                        help="Skip running; plot an existing benchmark-results directory and exit")
+    parser.add_argument("--plots-dir",
+                        help="Output directory for plots (default: <output-dir>/plots)")
+    parser.add_argument("--chart", choices=["line", "bar"], default="line",
+                        help="Per-operation chart style (default: line)")
+    parser.add_argument("--article-mode", action="store_true",
+                        help="Render 840x420 article-optimized plots")
+
     args = parser.parse_args()
+
+    # Plot-only mode: visualize existing results without running benchmarks.
+    if args.plot_only:
+        results_dir = Path(args.plot_only).resolve()
+        plots_dir = Path(args.plots_dir).resolve() if args.plots_dir else results_dir / "plots"
+        plot_from_dir(results_dir, plots_dir, chart=args.chart,
+                      article_mode=args.article_mode)
+        return 0
 
     if args.repeats < 1:
         raise ValueError("--repeats must be >= 1")
@@ -433,6 +488,11 @@ def main() -> int:
     print(f"Wrote {len(rows)} rows to {output_dir / 'runs.csv'}")
     print(f"Summary: {output_dir / 'summary.csv'}")
     print(f"JSON: {output_dir / 'runs.json'}")
+
+    if args.plot:
+        plots_dir = Path(args.plots_dir).resolve() if args.plots_dir else output_dir / "plots"
+        plot_from_dir(output_dir, plots_dir, chart=args.chart,
+                      article_mode=args.article_mode)
 
     return 0
 

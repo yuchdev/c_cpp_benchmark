@@ -41,8 +41,8 @@ if(NOT Eigen3_FOUND)
 endif()
 
 # ---- Include directories ----
-set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../include)
-set(BENCH_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../benchmarks)
+set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(BENCH_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
 
 # ---- C static library ----
 add_library(c_matrix STATIC
