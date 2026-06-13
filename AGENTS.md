@@ -81,22 +81,63 @@ c_cpp_benchmark/
 
 | Dependency | Version | Notes |
 |---|---|---|
-| CMake | 3.16+ | Required |
-| C compiler | C11 | GCC, Clang, or MSVC |
-| C++ compiler | C++17 | GCC, Clang, or MSVC |
-| Eigen3 | 3.3+ | Auto-fetched via `FetchContent` if not found; or install `libeigen3-dev` |
-| Python | 3.7+ | Required for scripts and Python tests |
+| CMake | 3.16+ | Required on all platforms |
+| C compiler | C11 | GCC or Clang (Linux/macOS); MinGW-w64 GCC on Windows |
+| C++ compiler | C++17 | Same compiler as C |
+| Eigen3 | 3.3+ | Auto-fetched via `FetchContent`; or install via package manager (see below) |
+| Python | 3.7+ | Required for orchestration scripts and Python tests |
 | Matplotlib | any recent | `pip install matplotlib` — only needed for `plot_results.py` |
+
+> **Windows note**: the C benchmarks use `clock_gettime(CLOCK_MONOTONIC, …)`, a POSIX API.
+> Build under MSYS2/MinGW-w64 or WSL2. Pure MSVC builds are not supported.
 
 ---
 
 ## Build Commands
 
-```bash
-# Standard Release build (required for meaningful benchmark numbers)
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build -j4
+### Ubuntu / Debian
 
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential cmake python3 python3-pip libeigen3-dev
+pip3 install matplotlib
+
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build -j$(nproc)
+```
+
+### macOS
+
+```bash
+brew install cmake eigen python
+pip3 install matplotlib
+
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build -j$(sysctl -n hw.logicalcpu)
+```
+
+### Windows — MSYS2 / MinGW-w64 (recommended)
+
+Open the **UCRT64** shell from [MSYS2](https://www.msys2.org):
+
+```bash
+pacman -S --needed \
+    mingw-w64-ucrt-x86_64-gcc \
+    mingw-w64-ucrt-x86_64-cmake \
+    mingw-w64-ucrt-x86_64-ninja \
+    mingw-w64-ucrt-x86_64-eigen3 \
+    python python-pip
+pip install matplotlib
+
+cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build
+```
+
+Alternatively, open a WSL2 Ubuntu shell and use the Ubuntu instructions above.
+
+### CMake Options (all platforms)
+
+```bash
 # Build a single suite only
 cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_GENERIC_BENCHMARKS=OFF
 cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_MATRIX_BENCHMARKS=OFF

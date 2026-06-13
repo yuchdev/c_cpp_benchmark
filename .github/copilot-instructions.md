@@ -54,13 +54,28 @@ When generating or modifying C/C++ code, always match the clang-format style. Wh
 - Build type for benchmarks: always **Release**
 - C baseline flags: `-O2` (portable, no machine-specific tuning)
 - C++ aggressive flags: `-O3 -march=native -funroll-loops -fno-math-errno -ffp-contract=fast`
-  (controlled by `MATRIX_CPP_AGGRESSIVE=ON`, the default)
+  (GCC/Clang only, controlled by `MATRIX_CPP_AGGRESSIVE=ON`)
 - Eigen3 is fetched automatically via `FetchContent` if not found via `find_package`
+- **Windows**: the C benchmarks use `clock_gettime(CLOCK_MONOTONIC, …)`; build under
+  MSYS2/MinGW-w64 or WSL2 — pure MSVC is not supported
 
-Standard build:
+**Ubuntu / Debian:**
 ```bash
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build -j4
+sudo apt-get install -y build-essential cmake python3 python3-pip libeigen3-dev
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release && cmake --build cmake-build -j$(nproc)
+```
+
+**macOS:**
+```bash
+brew install cmake eigen python
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release && cmake --build cmake-build -j$(sysctl -n hw.logicalcpu)
+```
+
+**Windows (MSYS2 UCRT64 shell):**
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake \
+    mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-eigen3 python python-pip
+cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build cmake-build
 ```
 
 ---

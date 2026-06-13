@@ -16,11 +16,33 @@ C vs C++ micro-benchmark collection. Two suites:
 
 ## Build & Test (run from repository root)
 
-```bash
-# Build
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build -j4
+> The C benchmarks use `clock_gettime(CLOCK_MONOTONIC, …)`.
+> On Windows, build under **MSYS2/MinGW-w64** or **WSL2** — MSVC is not supported.
 
+**Ubuntu / Debian**
+```bash
+sudo apt-get install -y build-essential cmake python3 python3-pip libeigen3-dev
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build -j$(nproc)
+```
+
+**macOS**
+```bash
+brew install cmake eigen python
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build -j$(sysctl -n hw.logicalcpu)
+```
+
+**Windows — MSYS2 UCRT64 shell**
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake \
+    mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-eigen3 python python-pip
+cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build
+```
+
+**Tests (all platforms)**
+```bash
 # C/C++ tests (matrix correctness, CLI options, Eigen cross-checks)
 ctest --test-dir cmake-build --output-on-failure
 

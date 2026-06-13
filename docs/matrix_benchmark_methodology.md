@@ -1,4 +1,4 @@
-# Matrix Benchmark Redesign & C++ Optimization Report
+# Matrix Benchmarking
 
 This document describes the redesign of the `matrix_perf_compare` suite, the
 optimizations applied to the C++ (Eigen) side, the new flexible command-line
@@ -9,7 +9,7 @@ straightforward, portable C baseline.
 
 ## 1. Goals
 
-The suite was reworked with four objectives:
+The suite was implemented with four objectives:
 
 1. **Flexibility** – sizes, operations, iteration counts and output format are
    now fully controllable from the command line instead of being hard-coded.

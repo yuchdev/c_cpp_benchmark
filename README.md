@@ -69,11 +69,71 @@ Both `c_matrix_bench` and `cpp_matrix_bench` share the same options:
 
 ## 3. Build Instructions
 
-CMake 3.16+ and a C11/C++17 compiler are required.
+**Requirements:** CMake 3.16+, a C11 compiler, a C++17 compiler, Python 3.7+.
+Eigen3 3.3+ is fetched automatically via `FetchContent` if not found on the system.
+The C benchmarks use POSIX `clock_gettime(CLOCK_MONOTONIC, …)`, so a POSIX-compatible
+toolchain is required on Windows (see below).
+
+### Ubuntu / Debian
 
 ```bash
+sudo apt-get update
+sudo apt-get install -y build-essential cmake python3 python3-pip libeigen3-dev
+pip3 install matplotlib
+
 cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build -j
+cmake --build cmake-build -j$(nproc)
+```
+
+### macOS
+
+Requires [Homebrew](https://brew.sh):
+
+```bash
+brew install cmake eigen python
+pip3 install matplotlib
+
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build -j$(sysctl -n hw.logicalcpu)
+```
+
+### Windows
+
+#### Option A — MSYS2 / MinGW-w64 (recommended)
+
+1. Install [MSYS2](https://www.msys2.org) and open the **UCRT64** shell.
+2. Install the toolchain:
+
+```bash
+pacman -S --needed \
+    mingw-w64-ucrt-x86_64-gcc \
+    mingw-w64-ucrt-x86_64-cmake \
+    mingw-w64-ucrt-x86_64-ninja \
+    mingw-w64-ucrt-x86_64-eigen3 \
+    python python-pip
+pip install matplotlib
+```
+
+3. Build from the repository root inside the UCRT64 shell:
+
+```bash
+cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build
+```
+
+#### Option B — WSL2
+
+Inside a WSL2 Ubuntu shell, follow the **Ubuntu / Debian** instructions above.
+
+### CMake Options (all platforms)
+
+```bash
+# Build only one suite
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_GENERIC_BENCHMARKS=OFF
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_MATRIX_BENCHMARKS=OFF
+
+# Disable aggressive C++ flags for a flag-equal comparison (both sides at -O2)
+cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DMATRIX_CPP_AGGRESSIVE=OFF
 ```
 
 ---
