@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: build + unit tests (both platforms)
+  # ---------------------------------------------------------------------------
+  build-and-test:
+    name: Build & Unit Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Python dependencies
+        run: pip install matplotlib
+
+      - name: Install Eigen3 (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y libeigen3-dev
+
+      - name: Install Eigen3 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install eigen
+
+      - name: Configure CMake
+        run: cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build cmake-build --config Release -j4
+
+      - name: Run CTest (C/C++ unit tests)
+        run: ctest --test-dir cmake-build --output-on-failure -C Release
+
+      - name: Run Python unit tests
+        run: python3 -m unittest tests.test_plot_results -v
+
+  # ---------------------------------------------------------------------------
+  # Job 2: integration test — full pipeline + C++ superiority check
+  # Runs on Linux only (macOS CI is slower and the structural advantages are
+  # platform-independent; one platform is sufficient for correctness).
+  # ---------------------------------------------------------------------------
+  integration-test:
+    name: Integration Test (pipeline + C++ superiority)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Python dependencies
+        run: pip install matplotlib
+
+      - name: Install Eigen3
+        run: sudo apt-get update -qq && sudo apt-get install -y libeigen3-dev
+
+      - name: Configure CMake
+        run: cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build cmake-build --config Release -j4
+
+      - name: Run integration tests
+        run: python3 -m unittest tests.test_benchmark_results -v
+        env:
+          BUILD_DIR: cmake-build
+          # Use the Matplotlib non-interactive backend (no display required)
+          MPLBACKEND: Agg
