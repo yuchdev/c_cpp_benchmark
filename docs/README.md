@@ -12,7 +12,7 @@ description; the [recommended reading order](#recommended-reading-order) follows
 |:-----|:------|:---------------|
 | [`c_cpp_benchmarking.md`](c_cpp_benchmarking.md) | When C++ Is Faster Than C | Narrative walkthrough of all five generic benchmarks (A–E) with measured results and detailed explanations of the compiler levers each test isolates |
 | [`generic_benchmark_methodology.md`](generic_benchmark_methodology.md) | Benchmark Methodology | Measurement design: warmup strategy, timing approach, fairness rules (same element type, same seed, no I/O in timed region), and result-interpretation guidance |
-| [`matrix_benchmark_methodology.md`](matrix_benchmark_methodology.md) | Matrix Benchmarking | Architecture of the `matrix_perf_compare` suite, CLI reference, C vs C++ optimization strategy, and concrete measured results for compute-bound and element-wise operations |
+| [`matrix_benchmark_methodology.md`](matrix_benchmark_methodology.md) | Matrix Benchmarking | Architecture of the `benchmarks/matrix` suite, CLI reference, C vs C++ optimization strategy, and concrete measured results for compute-bound and element-wise operations |
 | [`benchmark_visualization.md`](benchmark_visualization.md) | Benchmark Visualization | Full reference for `scripts/plot_results.py`: input formats, chart types, output layout, CLI options, and integration with `run_all_benchmarks.py` |
 | [`compiler_explorer.md`](compiler_explorer.md) | Compiler Explorer Examples | Annotated Godbolt snippets for each benchmark; shows the assembly-level difference between C and C++ implementations side by side |
 
@@ -45,7 +45,7 @@ sinks). Also explains how to interpret ratios and known limitations.
 
 ### 3. [`matrix_benchmark_methodology.md`](matrix_benchmark_methodology.md) — The matrix suite in depth
 
-Covers the `matrix_perf_compare` suite architecture, the shared CLI
+Covers the `benchmarks/matrix` suite architecture, the shared CLI
 (`--sizes`, `--ops`, `--repeats`, `--format`, …), the intentional optimization
 asymmetry (C at `-O2` vs C++ at `-O3 -march=native` with Eigen SIMD), and
 a table of concrete results for compute-bound operations (5–10× ratios) and

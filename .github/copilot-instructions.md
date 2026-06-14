@@ -9,11 +9,11 @@ in this project, follow the guidelines below.
 
 Two benchmark suites live side by side:
 
-- **`generic_perf_compare/`** — Five paired benchmarks (groups a–e) each isolating one compiler
+- **`benchmarks/generic/`** — Five paired benchmarks (groups a–e) each isolating one compiler
   lever: function inlining (A), template dispatch (B), inline class operators (C), data layout /
   cache (D), and `constexpr` compile-time evaluation (E). Each group has one `.c` file and one
   `.cpp` file that perform identical logical work.
-- **`matrix_perf_compare/`** — Matrix operations (transpose, add, mul, matvec, …) comparing
+- **`benchmarks/matrix/`** — Matrix operations (transpose, add, mul, matvec, …) comparing
   hand-written portable C against Eigen (C++) at configurable sizes. Includes CTest unit tests.
 
 Supporting scripts (`scripts/`) orchestrate builds, run benchmarks, produce CSV/JSON results, and

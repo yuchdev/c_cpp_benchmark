@@ -1,5 +1,5 @@
 /*
- * Shared, flexible benchmark CLI options for the matrix_perf_compare suite.
+ * Shared, flexible benchmark CLI options for the benchmarks/matrix suite.
  *
  * This header is valid C11 *and* C++17 so that the C driver
  * (benchmarks_c.c) and the C++ driver (benchmarks_cpp.cpp) parse exactly

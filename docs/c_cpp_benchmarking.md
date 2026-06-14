@@ -411,6 +411,6 @@ principle.
 
 ---
 
-*Benchmarks: see `generic_perf_compare/` for source code. Build system: CMake,
+*Benchmarks: see `benchmarks/generic/` for source code. Build system: CMake,
 `-O3`. Hardware: macOS x86-64, L1d 32 KB, L2 256 KB, L3 4 MB. All timings are
 single-pass wall-clock seconds measured with `CLOCK_MONOTONIC` / `high_resolution_clock`.*

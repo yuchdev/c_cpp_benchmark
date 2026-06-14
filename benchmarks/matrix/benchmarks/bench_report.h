@@ -1,5 +1,5 @@
 /*
- * Shared benchmark reporter for the matrix_perf_compare suite.
+ * Shared benchmark reporter for the benchmarks/matrix suite.
  *
  * Valid in both C11 and C++17.  Streams results to stdout in the format
  * selected on the command line (table / csv / json) and, independently,

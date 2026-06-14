@@ -2,8 +2,8 @@
 
 This repository contains a comprehensive set of C/C++ benchmarks split into two families:
 
-1.  **Generic programming-pattern benchmarks** (`generic_perf_compare`)
-2.  **Matrix-operation benchmarks** (`matrix_perf_compare`)
+1.  **Generic programming-pattern benchmarks** (`benchmarks/generic`)
+2.  **Matrix-operation benchmarks** (`benchmarks/matrix`)
 
 ---
 
@@ -19,7 +19,7 @@ The script will automatically configure (via CMake), build, and execute all benc
 
 ---
 
-## 1. Generic Benchmarks (`generic_perf_compare`)
+## 1. Generic Benchmarks (`benchmarks/generic`)
 
 These are paired micro-benchmarks comparing equivalent C and C++ implementations of common programming patterns.
 
@@ -33,7 +33,7 @@ These are paired micro-benchmarks comparing equivalent C and C++ implementations
 
 ---
 
-## 2. Matrix Benchmarks (`matrix_perf_compare`)
+## 2. Matrix Benchmarks (`benchmarks/matrix`)
 
 This suite compares handwritten C matrix routines against [Eigen](https://eigen.tuxfamily.org/) (a modern C++ linear algebra library) across a range of matrix sizes and operations.
 
@@ -185,10 +185,10 @@ You can also run benchmarks directly:
 
 ```bash
 # Generic
-./build/generic_perf_compare/benchmarks/a_std_sort_cpp 1000000
+./cmake-build/benchmarks/generic/a_std_sort_cpp 1000000
 
 # Matrix
-./build/matrix_perf_compare/project/c_matrix_bench results/c_results.csv
+./cmake-build/benchmarks/matrix/c_matrix_bench results/c_results.csv
 ```
 
 ---

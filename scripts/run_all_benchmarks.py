@@ -49,8 +49,8 @@ def find_executable(build_dir: Path, name: str) -> Path:
     :raises FileNotFoundError: If no executable matching ``name`` is found.
     """
     candidates = [
-        build_dir / "generic_perf_compare" / "benchmarks" / name,
-        build_dir / "matrix_perf_compare" / "project" / name,
+        build_dir / "benchmarks" / "generic" / name,
+        build_dir / "benchmarks" / "matrix" / name,
         build_dir / name,
     ]
     if build_dir.exists():
@@ -232,6 +232,25 @@ def run_generic(build_dir: Path, repeats: int, rows: List[Dict[str, object]], si
                 rows.append(row)
 
 
+def _extract_matrix_op(name: str, rows_n: int) -> str:
+    """Extract the pure operation name from a compound matrix benchmark name.
+
+    Strips the language/type prefix (``c_``, ``cpp_dynamic_``, ``cpp_fixed_``)
+    and the size suffix (``_NxN``).  For example::
+
+        c_mul_128x128       (rows=128) → mul
+        cpp_dynamic_matvec_512x512  (rows=512) → matvec
+        cpp_fixed_transpose_mul_4x4 (rows=4)   → transpose_mul
+    """
+    suffix = f"_{rows_n}x{rows_n}"
+    if name.endswith(suffix):
+        name = name[: -len(suffix)]
+    for prefix in ("cpp_dynamic_", "cpp_fixed_", "c_"):
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
 def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]]) -> None:
     """Execute matrix benchmarks and ingest their generated CSV outputs.
 
@@ -268,14 +287,15 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]])
         with out_csv.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                size = int(row["rows"])
                 rows.append(
                     {
                         "suite": "matrix",
                         "group": "matrix",
-                        "benchmark": row["name"],
+                        "benchmark": _extract_matrix_op(row["name"], size),
                         "language": lang,
                         "run": 1,
-                        "measure": int(row["rows"]),
+                        "measure": size,
                         "metric": "avg_ns",
                         "value": float(row["avg_ns"]),
                         "unit": "ns",

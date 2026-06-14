@@ -14,10 +14,10 @@ option(BUILD_GENERIC_BENCHMARKS "Build generic C/C++ benchmarks" ON)
 option(BUILD_MATRIX_BENCHMARKS "Build matrix C/C++ benchmarks" ON)
 
 if(BUILD_GENERIC_BENCHMARKS)
-  add_subdirectory(generic_perf_compare)
+  add_subdirectory(benchmarks/generic)
 endif()
 
 if(BUILD_MATRIX_BENCHMARKS)
   enable_testing()
-  add_subdirectory(matrix_perf_compare)
+  add_subdirectory(benchmarks/matrix)
 endif()

@@ -11,8 +11,8 @@ A reproducible collection of C vs C++ micro-benchmarks organized into two suites
 
 | Suite | Directory | What it measures |
 |---|---|---|
-| **Generic** | `generic_perf_compare/` | Five paired benchmarks: sorting, element-wise transform, vector math, data layout, compile-time evaluation |
-| **Matrix** | `matrix_perf_compare/` | Matrix operations comparing hand-written C against Eigen (C++) at multiple sizes |
+| **Generic** | `benchmarks/generic/` | Five paired benchmarks: sorting, element-wise transform, vector math, data layout, compile-time evaluation |
+| **Matrix** | `benchmarks/matrix/` | Matrix operations comparing hand-written C against Eigen (C++) at multiple sizes |
 
 The goal is to demonstrate **structural** (not stylistic) performance advantages of C++ over C by
 isolating a single compiler lever per test. C and C++ programs always perform identical logical
@@ -24,35 +24,35 @@ work — ratios above 1.0× mean C is slower.
 
 ```
 c_cpp_benchmark/
-├── generic_perf_compare/            # Generic benchmark suite (five groups a–e)
-│   ├── benchmarks/                  # CMake subdirectory wiring the paired binaries
-│   ├── a_qsort_c.c                  # Group A — C: qsort + function pointer
-│   ├── a_std_sort_cpp.cpp           # Group A — C++: std::sort + lambda
-│   ├── b_callback_c.c               # Group B — C: volatile callback pointer
-│   ├── b_template_cpp.cpp           # Group B — C++: template lambda (SIMD)
-│   ├── c_struct_api.c               # Group C — C: struct of function pointers (vtable)
-│   ├── c_class_operator.cpp         # Group C — C++: inline class operators
-│   ├── d_buffer_copy_c.c            # Group D — C: Array-of-Structs (AoS)
-│   ├── d_buffer_move_cpp.cpp        # Group D — C++: Structure-of-Arrays (SoA)
-│   ├── e_runtime_table_c.c          # Group E — C: runtime S-box (24 rounds/byte)
-│   └── e_constexpr_table_cpp.cpp    # Group E — C++: constexpr fused table (1 lookup/byte)
-│
-├── matrix_perf_compare/             # Matrix benchmark suite
-│   ├── benchmarks/
-│   │   ├── bench_options.h          # Shared CLI parser (valid C11 and C++17)
-│   │   └── bench_report.h           # Shared reporter: table / csv / json output
-│   ├── include/
-│   │   ├── c_matrix/matrix.h        # C matrix API (row-major, heap, portable)
-│   │   └── cpp_matrix/eigen_ops.hpp # Eigen wrapper helpers
-│   ├── src/c/                       # C matrix library + benchmark driver
-│   │   ├── matrix.c / ops.c         # Core matrix routines
-│   │   └── benchmarks_c.c           # CLI-driven C benchmark runner
-│   ├── src/cpp/
-│   │   └── benchmarks_cpp.cpp       # CLI-driven C++ (Eigen) benchmark runner
-│   └── tests/
-│       ├── c/test_matrix.c          # C correctness tests
-│       ├── c/test_options.c         # CLI parser tests
-│       └── cpp/test_eigen_ops.cpp   # Eigen cross-check tests
+├── benchmarks/
+│   ├── generic/                     # Generic benchmark suite (five groups a–e)
+│   │   ├── a_qsort_c.c              # Group A — C: qsort + function pointer
+│   │   ├── a_std_sort_cpp.cpp       # Group A — C++: std::sort + lambda
+│   │   ├── b_callback_c.c           # Group B — C: volatile callback pointer
+│   │   ├── b_template_cpp.cpp       # Group B — C++: template lambda (SIMD)
+│   │   ├── c_struct_api.c           # Group C — C: struct of function pointers (vtable)
+│   │   ├── c_class_operator.cpp     # Group C — C++: inline class operators
+│   │   ├── d_buffer_copy_c.c        # Group D — C: Array-of-Structs (AoS)
+│   │   ├── d_buffer_move_cpp.cpp    # Group D — C++: Structure-of-Arrays (SoA)
+│   │   ├── e_runtime_table_c.c      # Group E — C: runtime S-box (24 rounds/byte)
+│   │   └── e_constexpr_table_cpp.cpp # Group E — C++: constexpr fused table (1 lookup/byte)
+│   │
+│   └── matrix/                      # Matrix benchmark suite
+│       ├── benchmarks/
+│       │   ├── bench_options.h      # Shared CLI parser (valid C11 and C++17)
+│       │   └── bench_report.h       # Shared reporter: table / csv / json output
+│       ├── include/
+│       │   ├── c_matrix/matrix.h    # C matrix API (row-major, heap, portable)
+│       │   └── cpp_matrix/eigen_ops.hpp # Eigen wrapper helpers
+│       ├── src/c/                   # C matrix library + benchmark driver
+│       │   ├── matrix.c / ops.c     # Core matrix routines
+│       │   └── benchmarks_c.c       # CLI-driven C benchmark runner
+│       ├── src/cpp/
+│       │   └── benchmarks_cpp.cpp   # CLI-driven C++ (Eigen) benchmark runner
+│       └── tests/
+│           ├── c/test_matrix.c      # C correctness tests
+│           ├── c/test_options.c     # CLI parser tests
+│           └── cpp/test_eigen_ops.cpp # Eigen cross-check tests
 │
 ├── scripts/
 │   ├── run_all_benchmarks.py        # Orchestrator: configure → build → run → write results
@@ -254,19 +254,19 @@ python3 scripts/run_all_benchmarks.py --plot-only benchmark_results
 
 ## Adding a New Generic Benchmark (Group `f`, etc.)
 
-1. Create paired source files in `generic_perf_compare/`:
+1. Create paired source files in `benchmarks/generic/`:
    `f_<description>_c.c` and `f_<description>_cpp.cpp`
-2. Add both executables to `generic_perf_compare/benchmarks/CMakeLists.txt`.
+2. Add both executables to `benchmarks/generic/CMakeLists.txt`.
 3. Follow the anti-optimization sink pattern from existing sources (see `a_qsort_c.c`).
 4. Document the test in `docs/c_cpp_benchmarking.md` — explain what compiler lever it isolates.
 5. Add run parameters and expected group label to `scripts/run_all_benchmarks.py`.
 
 ## Adding a New Matrix Operation
 
-1. Add the C implementation to `matrix_perf_compare/src/c/ops.c` and declare it in
-   `include/c_matrix/matrix.h`.
-2. Add the Eigen equivalent to `matrix_perf_compare/src/cpp/benchmarks_cpp.cpp`.
-3. Register the operation name in the list inside `benchmarks/bench_options.h`.
+1. Add the C implementation to `benchmarks/matrix/src/c/ops.c` and declare it in
+   `benchmarks/matrix/include/c_matrix/matrix.h`.
+2. Add the Eigen equivalent to `benchmarks/matrix/src/cpp/benchmarks_cpp.cpp`.
+3. Register the operation name in the list inside `benchmarks/matrix/benchmarks/bench_options.h`.
 4. Add a correctness test in `tests/c/test_matrix.c` and `tests/cpp/test_eigen_ops.cpp`.
 5. Run `ctest --test-dir cmake-build --output-on-failure` to verify.
 

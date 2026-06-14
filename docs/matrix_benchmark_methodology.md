@@ -1,6 +1,6 @@
 # Matrix Benchmarking
 
-This document describes the redesign of the `matrix_perf_compare` suite, the
+This document describes the redesign of the `benchmarks/matrix` suite, the
 optimizations applied to the C++ (Eigen) side, the new flexible command-line
 interface, and the measured results that demonstrate the C++ advantage over a
 straightforward, portable C baseline.
@@ -26,7 +26,7 @@ The suite was implemented with four objectives:
 ## 2. New Architecture
 
 ```
-matrix_perf_compare/
+benchmarks/matrix/
 ├── benchmarks/
 │   ├── bench_options.h     # shared CLI parser (valid C11 *and* C++17)
 │   ├── bench_report.h      # shared reporter: table / csv / json + CSV mirror
@@ -187,10 +187,10 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
 # Run the test suite (matrix correctness, Eigen cross-checks, CLI parser)
-ctest --test-dir build/matrix_perf_compare/project --output-on-failure
+ctest --test-dir cmake-build --output-on-failure
 
 # Run benchmarks and summarize
-python3 matrix_perf_compare/scripts/run_all.py --build-dir build \
+python3 scripts/run_all_benchmarks.py --build-dir cmake-build \
         --sizes 4,8,16,32,128,512 --repeats 5
 ```
 

@@ -9,9 +9,9 @@
 
 C vs C++ micro-benchmark collection. Two suites:
 
-- **`generic_perf_compare/`** — five paired benchmarks (a–e): sorting, element-wise transform,
+- **`benchmarks/generic/`** — five paired benchmarks (a–e): sorting, element-wise transform,
   vec4 math, memory layout, compile-time evaluation
-- **`matrix_perf_compare/`** — matrix operations comparing hand-written C vs Eigen at configurable
+- **`benchmarks/matrix/`** — matrix operations comparing hand-written C vs Eigen at configurable
   sizes
 
 ## Build & Test (run from repository root)
