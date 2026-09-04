@@ -34,10 +34,22 @@ if(NOT Eigen3_FOUND)
     eigen
     URL      https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
   )
+  if(DEFINED BUILD_TESTING)
+    set(EIGEN_PARENT_BUILD_TESTING ${BUILD_TESTING})
+    set(EIGEN_RESTORE_BUILD_TESTING ON)
+  endif()
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
   set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
   set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
   set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(eigen)
+  if(EIGEN_RESTORE_BUILD_TESTING)
+    set(BUILD_TESTING ${EIGEN_PARENT_BUILD_TESTING} CACHE BOOL "" FORCE)
+    unset(EIGEN_PARENT_BUILD_TESTING)
+    unset(EIGEN_RESTORE_BUILD_TESTING)
+  else()
+    unset(BUILD_TESTING CACHE)
+  endif()
 endif()
 
 # ---- Include directories ----
