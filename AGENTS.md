@@ -192,7 +192,16 @@ python3 scripts/run_all_benchmarks.py \
 
 # Plot an existing results directory (no re-run)
 python3 scripts/run_all_benchmarks.py --plot-only benchmark_results
+
+# Everything: both suites at representative sizes, every matrix op across a
+# 4..512 dynamic size sweep (fixed-size Eigen group always covers 3/4/8/16
+# regardless), best-of-5 repeats throughout, plus plots — one command
+python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir benchmark_results --all
 ```
+
+`--all` cannot be combined with `--skip-generic`/`--skip-matrix`; any of `--sort`, `--callback`,
+`--struct-api`, `--buffer`, `--table`, `--matrix-sizes`, `--matrix-ops`, `--matrix-repeats` passed
+alongside it overrides just that one default.
 
 ---
 

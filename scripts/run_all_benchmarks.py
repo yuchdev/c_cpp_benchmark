@@ -251,12 +251,22 @@ def _extract_matrix_op(name: str, rows_n: int) -> str:
     return name
 
 
-def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]]) -> None:
+def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]],
+                sizes: Optional[str] = None, ops: Optional[str] = None,
+                repeats: Optional[int] = None) -> None:
     """Execute matrix benchmarks and ingest their generated CSV outputs.
 
     :param build_dir: Build directory where matrix benchmark executables exist.
     :param output_dir: Parent output directory for raw and summarized artifacts.
     :param rows: Mutable row collection where parsed benchmark data is appended.
+    :param sizes: Optional ``--sizes`` value forwarded verbatim to both matrix
+        binaries (comma list or ``start:xMUL:steps`` progression). ``None``
+        keeps each binary's own default (``32,128,512``).
+    :param ops: Optional ``--ops`` value forwarded verbatim to both matrix
+        binaries (comma list or ``"all"``). ``None`` keeps the binaries'
+        default, which is already every registered operation.
+    :param repeats: Optional ``--repeats`` value forwarded to both matrix
+        binaries. ``None`` keeps each binary's own default (best-of-1).
     :returns: ``None``.
     :raises FileNotFoundError: If a matrix benchmark executable is not found.
     :raises RuntimeError: If a matrix benchmark process fails.
@@ -265,6 +275,14 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]])
     """
     raw_dir = output_dir / "matrix_raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
+
+    extra_args: List[str] = []
+    if sizes:
+        extra_args += ["--sizes", sizes]
+    if ops:
+        extra_args += ["--ops", ops]
+    if repeats:
+        extra_args += ["--repeats", str(repeats)]
 
     did_build = False
     for lang, exe_name, csv_name in MATRIX_BENCHMARKS:
@@ -282,7 +300,7 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]])
                 raise
 
         out_csv = raw_dir / csv_name
-        run_cmd([str(exe), str(out_csv)])
+        run_cmd([str(exe), "--csv", str(out_csv), *extra_args])
 
         with out_csv.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -447,12 +465,29 @@ def main() -> int:
     parser.add_argument("--repeats", type=int, default=5, help="Repeat count for generic executable timing")
     parser.add_argument("--skip-generic", action="store_true", help="Skip generic benchmarks")
     parser.add_argument("--skip-matrix", action="store_true", help="Skip matrix benchmarks")
+    parser.add_argument("--all", action="store_true",
+                        help="Run every benchmark in both suites with full matrix op/size "
+                             "coverage and representative generic sizes, then plot the results. "
+                             "Equivalent to setting --matrix-ops all, a broad --matrix-sizes "
+                             "sweep, --sort/--callback/--struct-api/--buffer/--table to the "
+                             "README-recommended sizes (unless already given), and --plot. "
+                             "Cannot be combined with --skip-generic/--skip-matrix.")
 
     parser.add_argument("--sort", type=TestingStrategy.parse, help="Vector sizes for sort benchmarks (group a)")
     parser.add_argument("--callback", type=TestingStrategy.parse, help="Iteration counts for callback benchmarks (group b)")
     parser.add_argument("--struct-api", type=TestingStrategy.parse, help="Iteration counts for struct API benchmarks (group c)")
     parser.add_argument("--buffer", type=TestingStrategy.parse, help="Buffer sizes for copy/move benchmarks (group d)")
     parser.add_argument("--table", type=TestingStrategy.parse, help="Iteration counts for table benchmarks (group e)")
+
+    parser.add_argument("--matrix-sizes",
+                        help="--sizes value forwarded to both matrix binaries: comma list or "
+                             "'start:xMUL:steps' progression (default: each binary's own 32,128,512)")
+    parser.add_argument("--matrix-ops",
+                        help="--ops value forwarded to both matrix binaries: comma list or 'all' "
+                             "(default: each binary's own default, which is already all operations)")
+    parser.add_argument("--matrix-repeats", type=int,
+                        help="--repeats value forwarded to both matrix binaries, i.e. how many "
+                             "independent runs to keep the best-of (default: each binary's own, 1)")
 
     # Visualization options.
     parser.add_argument("--plot", action="store_true",
@@ -479,6 +514,34 @@ def main() -> int:
     if args.repeats < 1:
         raise ValueError("--repeats must be >= 1")
 
+    if args.all:
+        if args.skip_generic or args.skip_matrix:
+            parser.error("--all cannot be combined with --skip-generic/--skip-matrix")
+
+        # Full matrix op/size coverage: every operation, a wide dynamic+fixed size
+        # sweep (well beyond the binaries' 32,128,512 default), best-of-5 repeats.
+        if args.matrix_ops is None:
+            args.matrix_ops = "all"
+        if args.matrix_sizes is None:
+            args.matrix_sizes = "4,8,16,32,64,128,256,512"
+        if args.matrix_repeats is None:
+            args.matrix_repeats = 5
+
+        # README-recommended representative sizes for the generic suite, unless
+        # the caller already asked for specific ones.
+        if args.sort is None:
+            args.sort = TestingStrategy.parse("1000000")
+        if args.callback is None:
+            args.callback = TestingStrategy.parse("10000000")
+        if args.struct_api is None:
+            args.struct_api = TestingStrategy.parse("10000000")
+        if args.buffer is None:
+            args.buffer = TestingStrategy.parse("262144")
+        if args.table is None:
+            args.table = TestingStrategy.parse("16777216")
+
+        args.plot = True
+
     build_dir = Path(args.build_dir).resolve()
     output_dir = Path(args.output_dir).resolve()
 
@@ -502,7 +565,8 @@ def main() -> int:
     if not args.skip_generic:
         run_generic(build_dir, args.repeats, rows, sizing)
     if not args.skip_matrix:
-        run_matrix(build_dir, output_dir, rows)
+        run_matrix(build_dir, output_dir, rows, sizes=args.matrix_sizes,
+                   ops=args.matrix_ops, repeats=args.matrix_repeats)
     write_outputs(rows, output_dir)
 
     print(f"Wrote {len(rows)} rows to {output_dir / 'runs.csv'}")

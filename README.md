@@ -179,6 +179,22 @@ Example command for representative run:
 python3 scripts/run_all_benchmarks.py --skip-matrix --build-dir cmake-build --output-dir benchmark-results --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000
 ```
 
+#### Everything, in One Command
+
+`--all` runs both suites with the representative generic sizes above, sweeps every matrix
+operation (`--matrix-ops all`) across a wide dynamic size range (`--matrix-sizes
+4,8,16,32,64,128,256,512`, best-of-5 via `--matrix-repeats 5`; the fixed-size Eigen group always
+covers 3×3/4×4/8×8/16×16 regardless of `--matrix-sizes`), and generates plots — no other flags
+needed:
+
+```bash
+python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir benchmark-results --all
+```
+
+Any of `--sort`/`--callback`/`--struct-api`/`--buffer`/`--table`/`--matrix-sizes`/`--matrix-ops`/
+`--matrix-repeats` passed alongside `--all` override just that one default; `--all` cannot be
+combined with `--skip-generic`/`--skip-matrix`.
+
 ### Individual Execution
 
 You can also run benchmarks directly:

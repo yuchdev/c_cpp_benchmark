@@ -75,6 +75,10 @@ python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir bench
 # Plot an existing results dir without re-running anything
 python3 scripts/run_all_benchmarks.py --plot-only benchmark-results
 
+# Everything: both suites at representative sizes, every matrix op across a
+# 4..512 dynamic size sweep, best-of-5 repeats, plus plots, one command
+python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir benchmark-results --all
+
 # Individual binaries
 ./cmake-build/benchmarks/generic/a_std_sort_cpp 1000000
 ./cmake-build/benchmarks/matrix/c_matrix_bench --help
