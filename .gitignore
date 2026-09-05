@@ -1,3 +1,22 @@
+# Build directories
+.vs/
+.vscode/
+build/
+build_test/
+!tests/integration/build/
+cmake/open-cpp-coverage.cmake
+cmake-build/
+cmake-build-*/
+__cmake_systeminformation/
+prefix/
+
+# User-specific
+CMakeLists.txt.user
+CMakeUserPresets.json
+
+# Runtime generated data
+uri.txt
+
 # Prerequisites
 *.d
 
@@ -10,12 +29,6 @@
 # Precompiled Headers
 *.gch
 *.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
 
 # Compiled Dynamic libraries
 *.so
@@ -36,6 +49,3 @@
 *.exe
 *.out
 *.app
-
-# debug information files
-*.dwo
