@@ -26,49 +26,10 @@ work — ratios above 1.0× mean C is slower.
 c_cpp_benchmark/
 ├── benchmarks/
 │   ├── generic/                     # Generic benchmark suite (five groups a–e)
-│   │   ├── a_qsort_c.c              # Group A — C: qsort + function pointer
-│   │   ├── a_std_sort_cpp.cpp       # Group A — C++: std::sort + lambda
-│   │   ├── b_callback_c.c           # Group B — C: volatile callback pointer
-│   │   ├── b_template_cpp.cpp       # Group B — C++: template lambda (SIMD)
-│   │   ├── c_struct_api.c           # Group C — C: struct of function pointers (vtable)
-│   │   ├── c_class_operator.cpp     # Group C — C++: inline class operators
-│   │   ├── d_buffer_copy_c.c        # Group D — C: Array-of-Structs (AoS)
-│   │   ├── d_buffer_move_cpp.cpp    # Group D — C++: Structure-of-Arrays (SoA)
-│   │   ├── e_runtime_table_c.c      # Group E — C: runtime S-box (24 rounds/byte)
-│   │   └── e_constexpr_table_cpp.cpp # Group E — C++: constexpr fused table (1 lookup/byte)
-│   │
 │   └── matrix/                      # Matrix benchmark suite
-│       ├── benchmarks/
-│       │   ├── bench_options.h      # Shared CLI parser (valid C11 and C++17)
-│       │   └── bench_report.h       # Shared reporter: table / csv / json output
-│       ├── include/
-│       │   ├── c_matrix/matrix.h    # C matrix API (row-major, heap, portable)
-│       │   └── cpp_matrix/eigen_ops.hpp # Eigen wrapper helpers
-│       ├── src/c/                   # C matrix library + benchmark driver
-│       │   ├── matrix.c / ops.c     # Core matrix routines
-│       │   └── benchmarks_c.c       # CLI-driven C benchmark runner
-│       ├── src/cpp/
-│       │   └── benchmarks_cpp.cpp   # CLI-driven C++ (Eigen) benchmark runner
-│       └── tests/
-│           ├── c/test_matrix.c      # C correctness tests
-│           ├── c/test_options.c     # CLI parser tests
-│           └── cpp/test_eigen_ops.cpp # Eigen cross-check tests
-│
-├── scripts/
-│   ├── run_all_benchmarks.py        # Orchestrator: configure → build → run → write results
-│   ├── compile_report.py            # Generate Markdown report from result files
-│   └── plot_results.py              # Generate Matplotlib charts (PNG + summary.md)
-│
+├── scripts/                         # Benchmark orchestrators
 ├── tests/
-│   └── test_plot_results.py         # Python unit tests for plot_results.py
-│
 ├── docs/                            # Methodology and reference documentation
-│   ├── c_cpp_benchmarking.md        # Narrative walkthrough of all five generic tests
-│   ├── generic_benchmark_methodology.md  # Warmup / measurement / fairness rules
-│   ├── matrix_benchmark_methodology.md   # Matrix suite architecture and results
-│   ├── benchmark_visualization.md   # plot_results.py full reference
-│   └── compiler_explorer.md         # Godbolt examples for assembly inspection
-│
 ├── examples/                        # Usage examples
 ├── CMakeLists.txt                   # Root CMake (requires 3.16+, C11, C++17)
 ├── .clang-format                    # LLVM-based style: 4-space indent, Allman braces
@@ -90,82 +51,6 @@ c_cpp_benchmark/
 
 > **Windows note**: the C benchmarks use `clock_gettime(CLOCK_MONOTONIC, …)`, a POSIX API.
 > Build under MSYS2/MinGW-w64 or WSL2. Pure MSVC builds are not supported.
-
----
-
-## Build Commands
-
-### Ubuntu / Debian
-
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential cmake python3 python3-pip libeigen3-dev
-pip3 install matplotlib
-
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build -j$(nproc)
-```
-
-### macOS
-
-```bash
-brew install cmake eigen python
-pip3 install matplotlib
-
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build -j$(sysctl -n hw.logicalcpu)
-```
-
-### Windows — MSYS2 / MinGW-w64 (recommended)
-
-Open the **UCRT64** shell from [MSYS2](https://www.msys2.org):
-
-```bash
-pacman -S --needed \
-    mingw-w64-ucrt-x86_64-gcc \
-    mingw-w64-ucrt-x86_64-cmake \
-    mingw-w64-ucrt-x86_64-ninja \
-    mingw-w64-ucrt-x86_64-eigen3 \
-    python python-pip
-pip install matplotlib
-
-cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build
-```
-
-Alternatively, open a WSL2 Ubuntu shell and use the Ubuntu instructions above.
-
-### CMake Options (all platforms)
-
-```bash
-# Build a single suite only
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_GENERIC_BENCHMARKS=OFF
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_MATRIX_BENCHMARKS=OFF
-
-# Disable aggressive C++ flags (flag-equal comparison: both sides at -O2)
-cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DMATRIX_CPP_AGGRESSIVE=OFF
-```
-
----
-
-## Test Commands
-
-### CTest — C/C++ unit tests (correctness, CLI options, Eigen cross-checks)
-
-```bash
-ctest --test-dir cmake-build --output-on-failure
-```
-
-Three test executables are registered: `c_tests`, `cpp_tests`, `options_tests`.
-
-### Python unit tests — plot_results.py
-
-```bash
-python3 -m unittest tests.test_plot_results -v
-```
-
-**Always run both CTest and Python tests before committing.** There are no linter invocations
-defined in the project yet; do not add them unless explicitly requested.
 
 ---
 

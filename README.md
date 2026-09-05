@@ -136,6 +136,25 @@ cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DBUILD_MATRIX_BENCHMARKS=O
 cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release -DMATRIX_CPP_AGGRESSIVE=OFF
 ```
 
+### Running Tests
+
+#### CTest — C/C++ unit tests (correctness, CLI options, Eigen cross-checks)
+
+```bash
+ctest --test-dir cmake-build --output-on-failure
+```
+
+Three test executables are registered: `c_tests`, `cpp_tests`, `options_tests`.
+
+#### Python unit tests — plot_results.py
+
+```bash
+python3 -m unittest tests.test_plot_results -v
+```
+
+**Always run both CTest and Python tests before committing.** There are no linter invocations
+defined in the project yet; do not add them unless explicitly requested.
+
 ---
 
 ## 4. Running Benchmarks
