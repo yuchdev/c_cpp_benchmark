@@ -205,8 +205,10 @@ def run_generic(build_dir: Path, repeats: int, rows: List[Dict[str, object]], si
                 measure = size
                 value = None
                 
-                # Match lines like "... measure=123 time=0.456 sec"
-                match = re.search(r"measure=(\d+)\s+time=([\d.]+)", output)
+                # Match lines like "... measure=123 time=0.456 sec". C++ binaries print
+                # via std::cout's default format, which switches to scientific notation
+                # for small values (e.g. "time=4.183e-05"), so accept an exponent too.
+                match = re.search(r"measure=(\d+)\s+time=([\d.]+(?:[eE][-+]?\d+)?)", output)
                 if match:
                     measure = int(match.group(1))
                     value = float(match.group(2))

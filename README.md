@@ -23,12 +23,12 @@ The script will automatically configure (via CMake), build, and execute all benc
 
 These are paired micro-benchmarks comparing equivalent C and C++ implementations of common programming patterns.
 
-| Group | C source              | C++ source                  | Focus                                                       |
-|:------|:----------------------|:----------------------------|:------------------------------------------------------------|
-| **a** | `a_qsort_c.c`         | `a_std_sort_cpp.cpp`        | `qsort` callback dispatch vs `std::sort` + lambda           |
-| **b** | `b_callback_c.c`      | `b_template_cpp.cpp`        | Function-pointer callbacks vs template/lambda transforms    |
-| **c** | `c_struct_api.c`      | `c_class_operator.cpp`      | C struct-style API vs C++ class operators/methods           |
-| **d** | `d_buffer_copy_c.c`   | `d_buffer_move_cpp.cpp`     | Cache locality: C Array-of-Structs vs C++ Structure-of-Arrays traversal |
+| Group | C source              | C++ source                  | Focus                                                                        |
+|:------|:----------------------|:----------------------------|:-----------------------------------------------------------------------------|
+| **a** | `a_qsort_c.c`         | `a_std_sort_cpp.cpp`        | `qsort` callback dispatch vs `std::sort` + lambda                            |
+| **b** | `b_callback_c.c`      | `b_template_cpp.cpp`        | Function-pointer callbacks vs template/lambda transforms                     |
+| **c** | `c_struct_api.c`      | `c_class_operator.cpp`      | C struct-style API vs C++ class operators/methods                            |
+| **d** | `d_buffer_copy_c.c`   | `d_buffer_move_cpp.cpp`     | Cache locality: C Array-of-Structs vs C++ Structure-of-Arrays traversal      |
 | **e** | `e_runtime_table_c.c` | `e_constexpr_table_cpp.cpp` | Runtime multi-round S-box transform vs compile-time `constexpr` table fusion |
 
 ---
@@ -63,7 +63,7 @@ Both `c_matrix_bench` and `cpp_matrix_bench` share the same options:
 *   **Measurement**: `--iters` iterations averaged (default 20; fewer for large multiply via `--heavy-divisor`), best of `--repeats`.
 *   **Timer**: `CLOCK_MONOTONIC` (C) / `std::chrono::steady_clock` (C++).
 *   **Reproducibility**: Same LCG seed used for both C and C++ random values.
-*   **Optimization**: portable `-O2` for C vs aggressive `-O3 -march=native` (AVX2/FMA, Eigen SIMD) for C++; toggle with `-DMATRIX_CPP_AGGRESSIVE`.
+*   **Optimization**: portable `-O2` for C vs. aggressive `-O3 -march=native` (AVX2/FMA, Eigen SIMD) for C++; toggle with `-DMATRIX_CPP_AGGRESSIVE`.
 
 ---
 
@@ -183,12 +183,12 @@ python3 scripts/run_all_benchmarks.py --build-dir build --buffer "1048576,x2,4"
 
 To get the most representative results (balancing cache effects and execution time), the following strategies are recommended:
 
-| Group | Parameter      | Recommended Strategy | Reasoning                                               |
-|:------|:---------------|:---------------------|:--------------------------------------------------------|
-| **a** | `--sort`       | `1000000`            | Exceeds L3 cache (16MB), represents DRAM-bound sorting. |
-| **b** | `--callback`   | `10000000`           | Measures micro-overhead of dispatch.                    |
-| **c** | `--struct-api` | `10000000`           | Measures member access overhead.                        |
-| **d** | `--buffer`     | `262144`             | Record count `N`; SoA hot set (~1MB) fits L3 while AoS (~16MB) is DRAM-bound. |
+| Group | Parameter      | Recommended Strategy | Reasoning                                                                                               |
+|:------|:---------------|:---------------------|:--------------------------------------------------------------------------------------------------------|
+| **a** | `--sort`       | `1000000`            | Exceeds L3 cache (16MB), represents DRAM-bound sorting.                                                 |
+| **b** | `--callback`   | `10000000`           | Measures micro-overhead of dispatch.                                                                    |
+| **c** | `--struct-api` | `10000000`           | Measures member access overhead.                                                                        |
+| **d** | `--buffer`     | `262144`             | Record count `N`; SoA hot set (~1MB) fits L3 while AoS (~16MB) is DRAM-bound.                           |
 | **e** | `--table`      | `16777216`           | Dataset size in bytes; C applies the rounds at runtime, C++ fuses them at compile time into one lookup. |
 
 
@@ -242,7 +242,7 @@ The unified runner produces the following artifacts in `--output-dir`:
 After running benchmarks, you can generate a human-readable Markdown report:
 
 ```bash
-python3 scripts/compile_report.py benchmark_results --output-format md --output-file report.md
+python3 scripts/compile_report.py benchmark-results --output-format md --output-file report.md
 ```
 
 #### Filtering Results
@@ -271,7 +271,7 @@ python3 scripts/run_all_benchmarks.py --build-dir build --output-dir benchmark-r
 python3 scripts/run_all_benchmarks.py --plot-only benchmark-results
 ```
 
-Each chart shows C vs C++ as separate series with the average speedup embedded
+Each chart shows C vs. C++ as separate series with the average speedup embedded
 in the legend. Use `--chart bar` for grouped bars and `--article-mode` for
 840×420 images tuned for articles. See
 [docs/benchmark_visualization.md](docs/benchmark_visualization.md) for full
