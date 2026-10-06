@@ -9,6 +9,10 @@ cmake-build/
 cmake-build-*/
 __cmake_systeminformation/
 prefix/
+__pycache__/
+*.egg-info
+venv
+.venv
 
 # User-specific
 CMakeLists.txt.user
