@@ -163,9 +163,12 @@ unrolling), avoiding heap traffic and loop overhead entirely:
 
 ### 5.3 Element-wise operations — memory-bandwidth bound
 
-For large `add` / `sub` / `scale` the kernels are limited by DRAM bandwidth, not
-arithmetic, so both languages land near parity (ratios ≈ 0.7–1.3×). This is
-expected and is documented rather than hidden: SIMD cannot beat the memory wall.
+For large `add` / `sub` / `scale` / `add3` the kernels are limited by DRAM
+bandwidth, not arithmetic, so both languages land near parity (ratios ≈ 0.7–1.3×).
+This is expected and is documented rather than hidden: SIMD cannot beat the
+memory wall. Large transpose operations are also sensitive to Eigen's
+column-major versus C's row-major layout, so they are not included in the
+integration test's overall C++-superiority percentage at sizes of 256 and above.
 
 ---
 
