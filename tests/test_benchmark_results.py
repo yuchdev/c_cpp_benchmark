@@ -10,14 +10,9 @@ enabled and verifies:
 2. The result CSV contains rows for every generic group (a–f) and the matrix
    suite, for both C and C++ languages.
 3. At least **95 %** of paired (C, C++) comparisons by (operation, size) show
-<<<<<<< HEAD
-   C++ superiority (speedup = C_time / C++_time > 1.0).
-4. All six generic benchmark groups individually report average speedup > 1.0.
-=======
    C++ superiority (speedup = C_time / C++_time > 1.0), excluding documented
    large-matrix parity cases.
 4. All five generic benchmark groups individually report average speedup > 1.0.
->>>>>>> 4700421221481461c2f4369043e71d75c8b2a7d3
 5. Core compute-bound matrix operations (mul, matvec, transpose_mul) show
    C++ superiority at every measured size.
 
