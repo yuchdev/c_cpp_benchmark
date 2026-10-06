@@ -11,7 +11,7 @@ A reproducible collection of C vs C++ micro-benchmarks organized into two suites
 
 | Suite | Directory | What it measures |
 |---|---|---|
-| **Generic** | `benchmarks/generic/` | Five paired benchmarks: sorting, element-wise transform, vector math, data layout, compile-time evaluation |
+| **Generic** | `benchmarks/generic/` | Six paired benchmarks: sorting, element-wise transform, vector math, data layout, compile-time evaluation, compile-time kernel unrolling |
 | **Matrix** | `benchmarks/matrix/` | Matrix operations comparing hand-written C against Eigen (C++) at multiple sizes |
 
 The goal is to demonstrate **structural** (not stylistic) performance advantages of C++ over C by
@@ -25,7 +25,7 @@ work — ratios above 1.0× mean C is slower.
 ```
 c_cpp_benchmark/
 ├── benchmarks/
-│   ├── generic/                     # Generic benchmark suite (five groups a–e)
+│   ├── generic/                     # Generic benchmark suite (six groups a–f)
 │   └── matrix/                      # Matrix benchmark suite
 ├── scripts/                         # Benchmark orchestrators
 ├── tests/
@@ -85,8 +85,8 @@ python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir bench
 ```
 
 `--all` cannot be combined with `--skip-generic`/`--skip-matrix`; any of `--sort`, `--callback`,
-`--struct-api`, `--buffer`, `--table`, `--matrix-sizes`, `--matrix-ops`, `--matrix-repeats` passed
-alongside it overrides just that one default.
+`--struct-api`, `--buffer`, `--table`, `--fir`, `--matrix-sizes`, `--matrix-ops`, `--matrix-repeats`
+passed alongside it overrides just that one default.
 
 ---
 
@@ -146,10 +146,10 @@ alongside it overrides just that one default.
 
 ---
 
-## Adding a New Generic Benchmark (Group `f`, etc.)
+## Adding a New Generic Benchmark (Group `g`, etc. — next free letter after `f`)
 
 1. Create paired source files in `benchmarks/generic/`:
-   `f_<description>_c.c` and `f_<description>_cpp.cpp`
+   `g_<description>_c.c` and `g_<description>_cpp.cpp`
 2. Add both executables to `benchmarks/generic/CMakeLists.txt`.
 3. Follow the anti-optimization sink pattern from existing sources (see `a_qsort_c.c`).
 4. Document the test in `docs/c_cpp_benchmarking.md` — explain what compiler lever it isolates.

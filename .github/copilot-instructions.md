@@ -9,10 +9,11 @@ in this project, follow the guidelines below.
 
 Two benchmark suites live side by side:
 
-- **`benchmarks/generic/`** — Five paired benchmarks (groups a–e) each isolating one compiler
+- **`benchmarks/generic/`** — Six paired benchmarks (groups a–f) each isolating one compiler
   lever: function inlining (A), template dispatch (B), inline class operators (C), data layout /
-  cache (D), and `constexpr` compile-time evaluation (E). Each group has one `.c` file and one
-  `.cpp` file that perform identical logical work.
+  cache (D), `constexpr` compile-time evaluation (E), and compile-time kernel unrolling via
+  non-type template parameters (F). Each group has one `.c` file and one `.cpp` file that perform
+  identical logical work.
 - **`benchmarks/matrix/`** — Matrix operations (transpose, add, mul, matvec, …) comparing
   hand-written portable C against Eigen (C++) at configurable sizes. Includes CTest unit tests.
 
@@ -156,7 +157,7 @@ C = A * B;                 // avoid: Eigen allocates a temporary
 |---|---|
 | `README.md` | Quick start, suite overview, build, CLI reference |
 | `AGENTS.md` | Full agentic guidelines (this project's source of truth for agents) |
-| `docs/c_cpp_benchmarking.md` | Narrative walkthrough of all five generic tests |
+| `docs/c_cpp_benchmarking.md` | Narrative walkthrough of all six generic tests |
 | `docs/generic_benchmark_methodology.md` | Warmup/measurement/fairness rules |
 | `docs/matrix_benchmark_methodology.md` | Matrix suite architecture, optimization strategy, results |
 | `docs/benchmark_visualization.md` | `plot_results.py` full CLI and output reference |

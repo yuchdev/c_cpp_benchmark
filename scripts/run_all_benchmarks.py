@@ -28,6 +28,8 @@ GENERIC_BENCHMARKS = [
     ("d", "cpp", "d_buffer_move_cpp"),
     ("e", "c", "e_runtime_table_c"),
     ("e", "cpp", "e_constexpr_table_cpp"),
+    ("f", "c", "f_fir_runtime_c"),
+    ("f", "cpp", "f_fir_template_cpp"),
 ]
 
 #: Matrix benchmark definitions as ``(language, executable_name, raw_csv_filename)`` tuples.
@@ -480,6 +482,7 @@ def main() -> int:
     parser.add_argument("--struct-api", type=TestingStrategy.parse, help="Iteration counts for struct API benchmarks (group c)")
     parser.add_argument("--buffer", type=TestingStrategy.parse, help="Buffer sizes for copy/move benchmarks (group d)")
     parser.add_argument("--table", type=TestingStrategy.parse, help="Iteration counts for table benchmarks (group e)")
+    parser.add_argument("--fir", type=TestingStrategy.parse, help="Input lengths for FIR kernel benchmarks (group f)")
 
     parser.add_argument("--matrix-sizes",
                         help="--sizes value forwarded to both matrix binaries: comma list or "
@@ -541,6 +544,8 @@ def main() -> int:
             args.buffer = TestingStrategy.parse("262144")
         if args.table is None:
             args.table = TestingStrategy.parse("16777216")
+        if args.fir is None:
+            args.fir = TestingStrategy.parse("10000000")
 
         args.plot = True
 
@@ -562,6 +567,7 @@ def main() -> int:
     if args.struct_api: sizing["c"] = args.struct_api
     if args.buffer: sizing["d"] = args.buffer
     if args.table: sizing["e"] = args.table
+    if args.fir: sizing["f"] = args.fir
 
     rows: List[Dict[str, object]] = []
     if not args.skip_generic:

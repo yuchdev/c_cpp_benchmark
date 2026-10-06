@@ -88,6 +88,7 @@ Friendly labels are applied to the generic single-letter groups:
 | `c` | `struct_api` |
 | `d` | `copy_move` |
 | `e` | `lookup_table` |
+| `f` | `fir` |
 
 The `C` and `C++` series within each operation are taken from the `language`
 column.

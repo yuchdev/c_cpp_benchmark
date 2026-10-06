@@ -30,6 +30,7 @@ These are paired micro-benchmarks comparing equivalent C and C++ implementations
 | **c** | `c_struct_api.c`      | `c_class_operator.cpp`      | C struct-style API vs C++ class operators/methods                            |
 | **d** | `d_buffer_copy_c.c`   | `d_buffer_move_cpp.cpp`     | Cache locality: C Array-of-Structs vs C++ Structure-of-Arrays traversal      |
 | **e** | `e_runtime_table_c.c` | `e_constexpr_table_cpp.cpp` | Runtime multi-round S-box transform vs compile-time `constexpr` table fusion |
+| **f** | `f_fir_runtime_c.c`   | `f_fir_template_cpp.cpp`    | Runtime-sized FIR tap loop vs `template<N>` compile-time-unrolled FIR kernel |
 
 ---
 
@@ -190,12 +191,13 @@ To get the most representative results (balancing cache effects and execution ti
 | **c** | `--struct-api` | `10000000`           | Measures member access overhead.                                                                        |
 | **d** | `--buffer`     | `262144`             | Record count `N`; SoA hot set (~1MB) fits L3 while AoS (~16MB) is DRAM-bound.                           |
 | **e** | `--table`      | `16777216`           | Dataset size in bytes; C applies the rounds at runtime, C++ fuses them at compile time into one lookup. |
+| **f** | `--fir`        | `10000000`           | Input signal length; C's tap loop stays runtime-sized while C++'s `template<N>` fully unrolls it.       |
 
 
 Example command for representative run:
 
 ```bash
-python3 scripts/run_all_benchmarks.py --skip-matrix --build-dir cmake-build --output-dir benchmark-results --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000
+python3 scripts/run_all_benchmarks.py --skip-matrix --build-dir cmake-build --output-dir benchmark-results --repeats 5 --sort "10000,100000,1000000,10000000" --callback 10000000 --struct-api 10000000 --buffer "1048576,x2,4" --table 10000000 --fir 10000000
 ```
 
 #### Everything, in One Command
@@ -210,9 +212,9 @@ needed:
 python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir benchmark-results --all
 ```
 
-Any of `--sort`/`--callback`/`--struct-api`/`--buffer`/`--table`/`--matrix-sizes`/`--matrix-ops`/
-`--matrix-repeats` passed alongside `--all` override just that one default; `--all` cannot be
-combined with `--skip-generic`/`--skip-matrix`.
+Any of `--sort`/`--callback`/`--struct-api`/`--buffer`/`--table`/`--fir`/`--matrix-sizes`/
+`--matrix-ops`/`--matrix-repeats` passed alongside `--all` override just that one default; `--all`
+cannot be combined with `--skip-generic`/`--skip-matrix`.
 
 ### Individual Execution
 

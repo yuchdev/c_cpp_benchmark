@@ -8,11 +8,12 @@ A reproducible C vs C++ micro-benchmark suite. Every benchmark is a **pair** of 
 C, one in C++ — that perform identical logical work, so that any measured speed difference comes
 from language/compiler capability rather than algorithm differences. Two independent suites:
 
-- `benchmarks/generic/` — five paired benchmarks (groups `a`–`e`), each isolating one specific
+- `benchmarks/generic/` — six paired benchmarks (groups `a`–`f`), each isolating one specific
   compiler lever: `qsort`+fn-pointer vs `std::sort`+lambda (a), function-pointer callback vs
   template/lambda dispatch (b), C struct-of-fn-pointers vtable vs inline C++ class operators (c),
   Array-of-Structs vs Structure-of-Arrays layout (d), runtime S-box table vs `constexpr`
-  compile-time-fused table (e).
+  compile-time-fused table (e), runtime-sized FIR tap loop vs `template<N>` compile-time-unrolled
+  kernel (f).
 - `benchmarks/matrix/` — hand-written C matrix routines vs Eigen (C++), across dynamic (`MatrixXd`)
   and fixed-size (`Matrix<double,N,N>`) Eigen matrices, over configurable sizes and ops (transpose,
   add, mul, matvec, …).
@@ -133,8 +134,9 @@ renders per-operation PNGs plus an `overall_speedup.png` and `summary.md`. Outpu
 
 ## Adding a new benchmark
 
-- New generic pair: add `benchmarks/generic/f_<name>_c.c` + `f_<name>_cpp.cpp`, register both
-  executables in `benchmarks/generic/CMakeLists.txt`, follow the `volatile`-sink pattern from
+- New generic pair: add `benchmarks/generic/g_<name>_c.c` + `g_<name>_cpp.cpp` (next free letter
+  after `f`), register both executables in `benchmarks/generic/CMakeLists.txt`, follow the
+  `volatile`-sink pattern from
   `a_qsort_c.c`, document the lever it isolates in `docs/c_cpp_benchmarking.md`, and add its run
   parameters to `scripts/run_all_benchmarks.py`.
 - New matrix op: implement in `benchmarks/matrix/src/c/ops.c` (+ declare in

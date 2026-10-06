@@ -47,6 +47,7 @@ GROUP_LABELS = {
     "c": "struct_api",
     "d": "copy_move",
     "e": "lookup_table",
+    "f": "fir",
 }
 
 # Canonical language identifiers and how they appear in legends/titles.

@@ -5,13 +5,13 @@ Runs ``scripts/run_all_benchmarks.py`` with both generic *and* matrix suites
 enabled and verifies:
 
 1. Every expected result file and plot image is present (runs.csv, summary.csv,
-   runs.json, results_{group}.csv for groups a–e and matrix, per-operation PNGs,
+   runs.json, results_{group}.csv for groups a–f and matrix, per-operation PNGs,
    overall_speedup.png, summary.md).
-2. The result CSV contains rows for every generic group (a–e) and the matrix
+2. The result CSV contains rows for every generic group (a–f) and the matrix
    suite, for both C and C++ languages.
 3. At least **95 %** of paired (C, C++) comparisons by (operation, size) show
    C++ superiority (speedup = C_time / C++_time > 1.0).
-4. All five generic benchmark groups individually report average speedup > 1.0.
+4. All six generic benchmark groups individually report average speedup > 1.0.
 5. Core compute-bound matrix operations (mul, matvec, transpose_mul) show
    C++ superiority at every measured size.
 
@@ -90,6 +90,7 @@ def setUpModule() -> None:  # noqa: N802 (unittest hook naming)
         "--struct-api", "10000000",
         "--buffer",     "262144",
         "--table",      "10000000",
+        "--fir",        "10000000",
         # Generate Matplotlib charts into plots/
         "--plot",
         "--plots-dir", str(plots_dir),
@@ -177,7 +178,7 @@ class TestOutputFiles(unittest.TestCase):
         for col in ("mean", "min", "max", "stdev", "samples"):
             self.assertIn(col, rows[0], f"summary.csv is missing column '{col}'")
 
-    # ── Per-group CSVs (generic a–e + matrix) ───────────────────────────────
+    # ── Per-group CSVs (generic a–f + matrix) ───────────────────────────────
 
     def test_group_csv_a(self):
         self.assertTrue((_dir() / "results_a.csv").exists())
@@ -193,6 +194,9 @@ class TestOutputFiles(unittest.TestCase):
 
     def test_group_csv_e(self):
         self.assertTrue((_dir() / "results_e.csv").exists())
+
+    def test_group_csv_f(self):
+        self.assertTrue((_dir() / "results_f.csv").exists())
 
     def test_group_csv_matrix(self):
         self.assertTrue((_dir() / "results_matrix.csv").exists())
@@ -213,6 +217,9 @@ class TestOutputFiles(unittest.TestCase):
 
     def test_png_lookup_table(self):
         self.assertTrue((_dir() / "plots" / "lookup_table.png").exists())
+
+    def test_png_fir(self):
+        self.assertTrue((_dir() / "plots" / "fir.png").exists())
 
     # ── Matrix per-operation PNGs ────────────────────────────────────────────
 
@@ -253,7 +260,7 @@ class TestResultContent(unittest.TestCase):
         with (_dir() / "runs.csv").open(encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         groups = {r["group"] for r in rows if r["suite"] == "generic"}
-        for g in ("a", "b", "c", "d", "e"):
+        for g in ("a", "b", "c", "d", "e", "f"):
             self.assertIn(g, groups, f"Generic group '{g}' missing from runs.csv")
 
     def test_matrix_suite_in_runs_csv(self):
@@ -310,8 +317,9 @@ class TestCppSuperiority(unittest.TestCase):
        that are memory-bandwidth-bound and approach parity.
 
     2. **Generic 100 %**: every generic group (sort, callback, struct_api,
-       copy_move, lookup_table) must individually show average speedup > 1.0.
-       These isolate structural compiler advantages and should never regress.
+       copy_move, lookup_table, fir) must individually show average speedup
+       > 1.0. These isolate structural compiler advantages and should never
+       regress.
 
     3. **Compute-bound matrix 100 %**: mul, matvec, and transpose_mul must show
        speedup > 1.0 at every benchmarked size — the 5–10× Eigen advantage here
@@ -345,7 +353,7 @@ class TestCppSuperiority(unittest.TestCase):
         results = pr.load_results(_dir() / "runs.json")
         ops = pr.group_operations(results)
 
-        for label in pr.GROUP_LABELS.values():   # sort, callback, struct_api, copy_move, lookup_table
+        for label in pr.GROUP_LABELS.values():   # sort, callback, struct_api, copy_move, lookup_table, fir
             if label not in ops:
                 self.fail(f"Generic operation '{label}' not found in results")
             speedup = ops[label].average_speedup()

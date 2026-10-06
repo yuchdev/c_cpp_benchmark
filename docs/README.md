@@ -10,7 +10,7 @@ description; the [recommended reading order](#recommended-reading-order) follows
 
 | File | Title | What it covers |
 |:-----|:------|:---------------|
-| [`c_cpp_benchmarking.md`](c_cpp_benchmarking.md) | When C++ Is Faster Than C | Narrative walkthrough of all five generic benchmarks (A–E) with measured results and detailed explanations of the compiler levers each test isolates |
+| [`c_cpp_benchmarking.md`](c_cpp_benchmarking.md) | When C++ Is Faster Than C | Narrative walkthrough of all six generic benchmarks (A–F) with measured results and detailed explanations of the compiler levers each test isolates |
 | [`generic_benchmark_methodology.md`](generic_benchmark_methodology.md) | Benchmark Methodology | Measurement design: warmup strategy, timing approach, fairness rules (same element type, same seed, no I/O in timed region), and result-interpretation guidance |
 | [`matrix_benchmark_methodology.md`](matrix_benchmark_methodology.md) | Matrix Benchmarking | Architecture of the `benchmarks/matrix` suite, CLI reference, C vs C++ optimization strategy, and concrete measured results for compute-bound and element-wise operations |
 | [`benchmark_visualization.md`](benchmark_visualization.md) | Benchmark Visualization | Full reference for `scripts/plot_results.py`: input formats, chart types, output layout, CLI options, and integration with `run_all_benchmarks.py` |
@@ -22,10 +22,11 @@ description; the [recommended reading order](#recommended-reading-order) follows
 
 ### 1. [`c_cpp_benchmarking.md`](c_cpp_benchmarking.md) — Start here
 
-Explains *why* C++ is faster in each of the five generic tests. Covers inlining,
-template dispatch, inline class operators, cache-optimal data layout, and
-`constexpr` compile-time evaluation. Includes measured timings and rationale for
-why C cannot match the C++ idiom without sacrificing generality or type safety.
+Explains *why* C++ is faster in each of the six generic tests. Covers inlining,
+template dispatch, inline class operators, cache-optimal data layout,
+`constexpr` compile-time evaluation, and compile-time kernel specialization via
+non-type template parameters. Includes measured timings and rationale for why C
+cannot match the C++ idiom without sacrificing generality or type safety.
 
 > **Prerequisite:** none. Good starting point for anyone unfamiliar with the project.
 

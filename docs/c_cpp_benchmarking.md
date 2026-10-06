@@ -4,13 +4,14 @@
 > intent to the compiler. Expressed intent is compiled away — leaving code
 > that is as fast as hand-optimized C, or faster."*
 
-This document walks through five concrete, measured benchmarks that demonstrate
+This document walks through six concrete, measured benchmarks that demonstrate
 a **systematic, reproducible performance advantage** of idiomatic C++ over
 idiomatic C. Each test isolates a different compiler capability — function
 inlining, template specialization, member-dispatch elimination, cache-optimal
-data layout, and compile-time evaluation. Together they tell a coherent story:
-the features that distinguish C++ from C are not syntactic sugar — they are a
-communication channel between the programmer and the optimizer.
+data layout, compile-time evaluation, and compile-time kernel specialization.
+Together they tell a coherent story: the features that distinguish C++ from C
+are not syntactic sugar — they are a communication channel between the
+programmer and the optimizer.
 
 All benchmarks are built with `-O3` (Release) for both languages and run on the
 same machine (macOS, x86-64, L1d 32 KB, L2 256 KB, L3 4 MB).
@@ -324,7 +325,7 @@ the hot loop is trivially vectorizable (gather or scalar unroll with AVX2).
 | 16 MB | 0.89–1.86 s | 0.013–0.027 s | **~65×** |
 | 64 MB | 1.78 s | 0.027 s | **66×** |
 
-**C++ is ~50–66× faster.** This is the largest advantage of all five tests —
+**C++ is ~50–66× faster.** This is the largest advantage of all six tests —
 and the most surprising, because the programs implement *identical* logic.
 The only difference is *when* the work happens.
 
@@ -340,6 +341,107 @@ generates it.
 
 ---
 
+## Test F — Convolution Kernel: Runtime-Sized vs Compile-Time-Sized FIR
+
+### What the benchmark does
+
+Both programs apply a **7-tap FIR filter** (a weighted sliding-window sum —
+the inner loop of any convolution, smoothing, or digital-filtering routine) to
+a **10-million-sample `double` signal**, then sum the filtered output.
+
+| Program | How the tap count is known |
+|---------|------------------------------|
+| `f_fir_runtime_c.c` | `fir_apply(in, out, len, taps, n_taps)` — `n_taps` is a **runtime** `size_t` parameter |
+| `f_fir_template_cpp.cpp` | `fir_apply<N>(in, out, len, taps)` — `N` is a **compile-time** non-type template parameter |
+
+### The C side
+
+The idiomatic, reusable C signature for a filtering routine takes the tap
+count as a runtime value — exactly like a real DSP library that must serve
+callers with arbitrary filter lengths from one compiled function:
+
+```c
+void fir_apply(const double* in, double* out, size_t len,
+               const double* taps, size_t n_taps) {
+    for (size_t i = 0; i + n_taps <= len; ++i) {
+        double acc = 0.0;
+        for (size_t k = 0; k < n_taps; ++k) {
+            acc += in[i + k] * taps[k];
+        }
+        out[i] = acc;
+    }
+}
+```
+
+Because `n_taps` is only known at run time, the compiler must emit a single
+generic inner loop with a runtime trip count. It cannot unroll the
+multiply-accumulate chain, cannot keep the (also runtime-indexed) tap
+coefficients resident in registers across outer iterations, and cannot fuse
+the chain into wide SIMD without inserting a runtime size check first. Every
+one of the ~10 million output samples re-walks a loop whose bounds the
+compiler cannot reason about at compile time.
+
+### The C++ side
+
+The same reusable idea — "one `fir_apply` usable for any filter length" — is
+expressed as a function template with the tap count as a non-type template
+parameter:
+
+```cpp
+template <std::size_t N>
+void fir_apply(const double* in, double* out, std::size_t len,
+               const std::array<double, N>& taps) {
+    for (std::size_t i = 0; i + N <= len; ++i) {
+        double acc = 0.0;
+        for (std::size_t k = 0; k < N; ++k) {
+            acc += in[i + k] * taps[k];
+        }
+        out[i] = acc;
+    }
+}
+```
+
+Genericity over filter length is *not* sacrificed — calling `fir_apply<11>`
+elsewhere in the same program simply instantiates a second, independent
+specialization. But for the instantiation actually used here, `N` is a
+compile-time constant: the compiler fully unrolls the 7-iteration inner loop,
+indexes `taps[k]` with a compile-time-constant `k`, and auto-vectorizes the
+unrolled accumulation. Each instantiation pays zero runtime cost for the
+genericity the template provides.
+
+### Measured result
+
+| N (samples) | C runtime-sized | C++ compile-time-sized | Ratio |
+|-------------|-----------------|-------------------------|-------|
+| 1,000,000 | 0.0067 s | 0.0027 s | **2.5×** |
+| 10,000,000 | 0.069 s | 0.029 s | **2.4×** |
+| 40,000,000 | 0.278 s | 0.119 s | **2.3×** |
+
+| Run | C runtime-sized | C++ compile-time-sized | Ratio |
+|-----|------------------|-------------------------|-------|
+| 10 M samples — run 1 | 0.0716 s | 0.0291 s | **2.5×** |
+| 10 M samples — run 2 | 0.0702 s | 0.0339 s | **2.1×** |
+| 10 M samples — run 3 | 0.0661 s | 0.0303 s | **2.2×** |
+
+**C++ is ~2.2–2.5× faster**, stable across input sizes. The gap is smaller
+than Tests A/B/C/E because the inner loop body (one multiply-add) is cheap
+relative to the loop-control overhead it eliminates — but it is the one lever
+of the six that is purely about what the compiler can prove about a *loop
+bound*, not about what it can prove about a *dispatch target* or a *value*.
+
+### Why C cannot match this
+
+A C programmer *can* get the same unrolling by hard-coding `N_TAPS` as a
+preprocessor macro and dropping the runtime parameter — but that is no longer
+a reusable, generic `fir_apply`; it is one function per filter length, chosen
+by hand, duplicated by hand, and kept in sync by hand. C has no mechanism to
+generate those specializations automatically from a single definition. C++
+templates give the *same source text* both properties at once: a single
+generic definition, and a zero-overhead, fully-specialized instantiation for
+every compile-time-known `N` a caller actually uses.
+
+---
+
 ## Summary of Results
 
 | Test | C idiom | C++ idiom | C++ advantage |
@@ -349,6 +451,7 @@ generates it.
 | **C — Vec4 math** | Struct of function pointers | Inline class operators | **~3–4×** |
 | **D — Cache layout** | Array-of-Structs (64 B stride) | Structure-of-Arrays (4 B stride) | **~6×** |
 | **E — Lookup table** | Runtime table init (24 rounds/byte) | `constexpr` fused table (1/byte) | **~50–66×** |
+| **F — FIR kernel** | Runtime tap count (no unrolling) | `template<N>` tap count (fully unrolled) | **~2.2–2.5×** |
 
 ---
 
@@ -359,7 +462,7 @@ logical work — same data, same arithmetic, same result. The performance gap
 therefore cannot be attributed to algorithmic differences. It is entirely a
 product of what each language communicates to the compiler.
 
-### The three compiler levers
+### The four compiler levers
 
 **1. Inlining and devirtualization.**  
 Tests A, B, and C all hinge on the same root cause: C's primary abstraction
@@ -390,23 +493,36 @@ effect must either hand-code the precomputed values (error-prone) or execute
 an out-of-band code-generation step (fragile build pipeline). C++ makes it the
 default.
 
+**4. Compile-time specialization of a runtime-shaped API.**  
+Test F isolates a lever distinct from the other three: it is not about
+dispatch targets (1) or data layout (2) or folding *values* at compile time
+(3) — it is about the compiler's ability to reason about a *loop bound*. A
+reusable C API that takes a size as a runtime parameter forces every call
+through one generic, unspecialized loop, no matter how small or
+compile-time-knowable that size happens to be at any given call site. C++
+non-type template parameters let the same reusable, generic interface also be
+a compile-time constant at the point of use, so the compiler can unroll,
+register-allocate, and vectorize per instantiation — without the programmer
+giving up genericity or hand-duplicating code per size.
+
 ### The design consequence
 
 These benchmarks are also a usability argument. In every case:
 
 - The **C programmer must manually opt out** of the abstraction cost (use a
-  different sorting function, split structs by hand, write a table generator) —
-  and doing so usually sacrifices generality, type safety, or maintainability.
+  different sorting function, split structs by hand, write a table generator,
+  hard-code a tap count) — and doing so usually sacrifices generality, type
+  safety, or maintainability.
 - The **C++ programmer does nothing special**. Sorting with `std::sort` + a
   lambda, wrapping data in a `std::vector`, declaring a pure function
-  `constexpr` — these are the *default*, idiomatic choices. The optimization
-  comes for free.
+  `constexpr`, parameterizing a kernel on `template<std::size_t N>` — these are
+  the *default*, idiomatic choices. The optimization comes for free.
 
 C++ is not faster than C because C++ programmers work harder. C++ is faster
 because its type system and template machinery give the compiler more
 information — and a well-informed compiler produces better code.
 
-The five benchmarks above are a reproducible, quantified demonstration of that
+The six benchmarks above are a reproducible, quantified demonstration of that
 principle.
 
 ---
