@@ -11,11 +11,15 @@
  *   - expression-template fusion (add3, mul_add) avoiding temporaries
  *   - compile-time fixed-size matrices (registers, full unrolling)
  *
- * The CLI is shared verbatim with the C driver via bench_options.h.
+ * The CLI is shared verbatim with the C driver via bench_options.h.  This file
+ * holds the "core" scenario (dynamic MatrixXd, op x size grid); the other
+ * scenarios -- including the compile-time-sized N = 2..16 sweep -- live in
+ * bench_scenarios_cpp.cpp.
  */
 #include "cpp_matrix/eigen_ops.hpp"
 #include "bench_options.h"
 #include "bench_report.h"
+#include "bench_scenarios_cpp.hpp"
 #include <Eigen/Dense>
 #include <chrono>
 #include <cstdio>
@@ -65,7 +69,7 @@ static void fill_rand(Eigen::MatrixBase<Derived> &m, unsigned int seed) {
         }
 }
 
-// ---- Group A: dynamic matrices (Eigen::MatrixXd) ----
+// ---- core scenario: dynamic matrices (Eigen::MatrixXd) ----
 
 static void run_dynamic_op(BenchReport &rp, const BenchOptions &o,
                            const std::string &op, int N) {
@@ -107,53 +111,12 @@ static void run_dynamic_op(BenchReport &rp, const BenchOptions &o,
     volatile double sink = Out(0, 0) + y(0); (void)sink;
 }
 
-// ---- Group B: fixed-size matrices (compile-time N) ----
-
-template <int N>
-static void run_fixed(BenchReport &rp, const BenchOptions &o) {
-    using Mat = Eigen::Matrix<double, N, N>;
-    using Vec = Eigen::Matrix<double, N, 1>;
-
-    Mat A, B, C, Out;
-    Vec x, y;
-    fill_rand(A, o.seed); fill_rand(B, o.seed + 1u); fill_rand(C, o.seed + 2u);
-    for (int i = 0; i < N; ++i) x(i) = i * 0.001;
-
-    const std::string sz = std::to_string(N) + "x" + std::to_string(N);
-    const int it = o.iters;
-
-    auto emit = [&](const char *op, double t) {
-        std::string nm = std::string("cpp_fixed_") + op + "_" + sz;
-        bench_report_row(&rp, nm.c_str(), N, N, it, t);
-    };
-
-    if (bench_op_enabled(&o, "transpose"))
-        emit("transpose", run_benchmark([&]{ Out.noalias() = A.transpose(); }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "add"))
-        emit("add", run_benchmark([&]{ Out.noalias() = A + B; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "sub"))
-        emit("sub", run_benchmark([&]{ Out.noalias() = A - B; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "scale"))
-        emit("scale", run_benchmark([&]{ Out.noalias() = A * 2.5; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "matvec"))
-        emit("matvec", run_benchmark([&]{ y.noalias() = A * x; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "mul"))
-        emit("mul", run_benchmark([&]{ Out.noalias() = A * B; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "transpose_mul"))
-        emit("transpose_mul", run_benchmark([&]{ Out.noalias() = A.transpose() * B; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "add3"))
-        emit("add3", run_benchmark([&]{ Out.noalias() = A + B + C; }, o.warmup, it, o.repeats));
-    if (bench_op_enabled(&o, "mul_add"))
-        emit("mul_add", run_benchmark([&]{ Out.noalias() = A * B + C; }, o.warmup, it, o.repeats));
-
-    volatile double sink = Out(0, 0) + y(0); (void)sink;
-}
-
 int main(int argc, char *argv[]) {
     BenchOptions o;
     if (bench_parse_args(&o, argc, argv) != 0) return 2;
     if (o.help)     { bench_print_usage(argv[0], stdout); return 0; }
     if (o.list_ops) { bench_list_ops(stdout); return 0; }
+    if (o.list_scenarios) { bench_list_scenarios(stdout); return 0; }
 
     if (!o.csv_enabled) {
         std::system("mkdir -p results");
@@ -164,18 +127,14 @@ int main(int argc, char *argv[]) {
     BenchReport rp;
     bench_report_begin(&rp, &o, "C++ (Eigen) Matrix Benchmark");
 
-    bench_report_section(&rp, "Group A: Dynamic matrices");
-    for (int si = 0; si < o.num_sizes; ++si)
-        for (int oi = 0; oi < BENCH_NUM_ALL_OPS; ++oi)
-            run_dynamic_op(rp, o, BENCH_ALL_OPS[oi], (int)o.sizes[si]);
-
-    if (o.fixed_enabled) {
-        bench_report_section(&rp, "Group B: Fixed-size matrices");
-        run_fixed<3>(rp, o);
-        run_fixed<4>(rp, o);
-        run_fixed<8>(rp, o);
-        run_fixed<16>(rp, o);
+    if (bench_scenario_enabled(&o, BENCH_SCN_CORE)) {
+        bench_report_section(&rp, "Core: dynamic matrices (Eigen::MatrixXd)");
+        for (int si = 0; si < o.num_sizes; ++si)
+            for (int oi = 0; oi < BENCH_NUM_ALL_OPS; ++oi)
+                run_dynamic_op(rp, o, BENCH_ALL_OPS[oi], (int)o.sizes[si]);
     }
+
+    bench_run_scenarios_cpp(rp, o);
 
     bench_report_end(&rp, &o);
     return 0;

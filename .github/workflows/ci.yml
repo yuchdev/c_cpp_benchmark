@@ -49,7 +49,9 @@ jobs:
         run: ctest --test-dir cmake-build --output-on-failure -C Release
 
       - name: Run Python unit tests
-        run: python3 -m unittest tests.test_plot_results -v
+        run: python3 -m unittest tests.test_plot_results tests.test_plot_scenarios tests.test_run_all_benchmarks -v
+        env:
+          MPLBACKEND: Agg
 
   # ---------------------------------------------------------------------------
   # Job 2: integration test — full pipeline + C++ superiority check

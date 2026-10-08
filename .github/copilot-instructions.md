@@ -16,6 +16,9 @@ Two benchmark suites live side by side:
   identical logical work.
 - **`benchmarks/matrix/`** — Matrix operations (transpose, add, mul, matvec, …) comparing
   hand-written portable C against Eigen (C++) at configurable sizes. Includes CTest unit tests.
+  Seven paired **scenarios** (`chain`, `fixed`, `cliff`, `batch`, `block`, `tri`, `conv`) add
+  parameter sweeps that each isolate one reason for, or limit to, the C++ advantage; they are
+  informational (some deliberately show C tying or winning).
 
 Supporting scripts (`scripts/`) orchestrate builds, run benchmarks, produce CSV/JSON results, and
 generate Matplotlib charts. Python tests live in `tests/`.
@@ -84,9 +87,13 @@ cmake -S . -B cmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build c
 ## Testing
 
 - **C/C++ tests** (correctness, CLI options, Eigen): `ctest --test-dir cmake-build --output-on-failure`
-- **Python tests**: `python3 -m unittest tests.test_plot_results -v`
+- **Python tests**: `python3 -m unittest tests.test_plot_results tests.test_plot_scenarios tests.test_run_all_benchmarks -v`
+- **Integration test** (slow, full pipeline): `python3 -m unittest tests.test_benchmark_results -v`.
+  Its "95 % of paired core comparisons" rule can fail intermittently on small element-wise ops where
+  C and C++ genuinely tie (this predates the scenarios) — rerun before assuming a regression.
 
-Always run both test suites after changes. Do not add new test frameworks unless asked.
+Always run the C/C++ and Python test suites after changes. Do not add new test frameworks unless
+asked.
 
 ---
 
@@ -102,6 +109,14 @@ These rules apply to all benchmark code — never violate them:
    in both C and C++ drivers.
 5. **Warmup** before measuring; keep the **minimum average** of `--repeats` runs.
 6. **Single-threaded only** — do not enable Eigen OpenMP or C++ thread pools.
+7. **Barriers around cheap kernels** — scenario timing loops call `BENCH_ESCAPE(buffer)` once and
+   `BENCH_CLOBBER()` after every timed call, in both languages (`BENCH_MEASURE` in C, `measure()` in
+   C++); otherwise the optimizer can hoist tiny-matrix work out of the loop.
+8. **Iterations scale with cost** — in the scenario sweeps `--iters` is the count for large sizes;
+   cheap calls get more (`bench_iters_scaled`). Never hard-code 20 iterations for tiny matrices.
+9. **One source of truth for scenarios** — sweep points, row names (`bench_scn_name()`) and work
+   estimates live only in `benchmarks/matrix/benchmarks/bench_scenarios.h`; both drivers include it,
+   and `scripts/run_all_benchmarks.py::classify_matrix_row` parses the names.
 
 ---
 
@@ -148,6 +163,9 @@ C = A * B;                 // avoid: Eigen allocates a temporary
 - **`Debug` builds** for benchmark runs — results are meaningless without optimization.
 - **External BLAS** (OpenBLAS, MKL) linked into Eigen benchmark targets.
 - **Non-portable compiler flags** added globally via `add_compile_options`.
+- **Hard-coding a scenario's sweep or row names in one driver** — they belong in `bench_scenarios.h`.
+- **Adding a matrix op without extending the `fixed` sweep** (`fixed_impl.inc`, `bench_fixed_n.inc`,
+  `scn::Fixed`, `run_fixed_n`) or documenting why it is excluded.
 
 ---
 
@@ -159,6 +177,6 @@ C = A * B;                 // avoid: Eigen allocates a temporary
 | `AGENTS.md` | Full agentic guidelines (this project's source of truth for agents) |
 | `docs/c_cpp_benchmarking.md` | Narrative walkthrough of all six generic tests |
 | `docs/generic_benchmark_methodology.md` | Warmup/measurement/fairness rules |
-| `docs/matrix_benchmark_methodology.md` | Matrix suite architecture, optimization strategy, results |
-| `docs/benchmark_visualization.md` | `plot_results.py` full CLI and output reference |
+| `docs/matrix_benchmark_methodology.md` | Matrix suite architecture, optimization strategy, results, and the seven scenarios (§8, incl. how to add one) |
+| `docs/benchmark_visualization.md` | `plot_results.py` / `plot_scenarios.py` CLI and output reference |
 | `docs/compiler_explorer.md` | Godbolt assembly examples for each benchmark |

@@ -3,7 +3,9 @@
 The visualization subsystem turns the benchmark results produced by the C/C++
 benchmark framework into publication-quality Matplotlib charts that compare C
 and C++ performance. It is implemented in [`scripts/plot_results.py`](../scripts/plot_results.py)
-and wired into [`scripts/run_all_benchmarks.py`](../scripts/run_all_benchmarks.py).
+and wired into [`scripts/run_all_benchmarks.py`](../scripts/run_all_benchmarks.py). The matrix
+*scenario* charts (heatmaps, sweeps, the convolution images) live in
+[`scripts/plot_scenarios.py`](../scripts/plot_scenarios.py), which `plot_results.py` calls for you.
 
 It is designed to visually demonstrate:
 
@@ -15,8 +17,8 @@ It is designed to visually demonstrate:
 for inclusion in articles, reports, README files, and CI artifacts.
 
 > Only **Matplotlib** and the Python standard library are used — no `seaborn`,
-> `plotly`, `bokeh`, `pandas` or `numpy` are required. It works on Linux, macOS
-> and Windows.
+> `plotly`, `bokeh` or `pandas`. (NumPy is used by the heatmaps and the PGM reader, but it is
+> always present: Matplotlib depends on it.) It works on Linux, macOS and Windows.
 
 ---
 
@@ -78,6 +80,11 @@ layout inside each `(suite, group)`:
 |:---|:---|:---|
 | Distinct benchmark per language | generic group `a`: `a_qsort_c` (C) + `a_std_sort_cpp` (C++) | the group (`sort`) |
 | Same benchmark name across languages | matrix `mul` exists for both C and C++ | the benchmark name (`mul`) |
+| Matrix *scenario* (group `matrix_<scenario>`) | `matrix_fixed` / `mul` | `<group>/<benchmark>` → `matrix_fixed/mul` |
+
+Scenario operations are namespaced so that, for example, the compile-time-N `mul` can never merge
+into the core `mul`. They get no per-operation chart and no bar in `overall_speedup.png`; they are
+drawn by the scenario figures below and listed in the `# Scenario Results` section of `summary.md`.
 
 Friendly labels are applied to the generic single-letter groups:
 
@@ -104,7 +111,14 @@ benchmark-results/plots/
     matrix_multiply.png    # one PNG per operation
     ...
     overall_speedup.png    # cross-operation bar chart
-    summary.md             # textual summary report
+    summary.md             # textual summary report (core + "# Scenario Results")
+
+    speedup_heatmap.png    # core matrix op x size grid, coloured by speedup
+    scenario_overview.png  # geometric-mean speedup of every scenario variant
+    scenario_chain.png  chain_heatmap.png
+    scenario_fixed.png  fixed_size_heatmap.png
+    scenario_cliff.png  scenario_batch.png  scenario_block.png
+    scenario_tri.png    scenario_conv.png   conv_images.png
 ```
 
 ### Per-operation chart
@@ -157,6 +171,35 @@ Worst case:
 Winner:
 C++
 ```
+
+---
+
+## Scenario charts
+
+The matrix scenarios are parameter sweeps (chain length, matrix size, block size, …), so they get
+figures that show the whole sweep rather than one line per operation. Throughout, **green means
+C++ is faster, purple means C is faster**, and speedup is always `C time / C++ time`; averages over a
+sweep are *geometric* (a 2× win and a 2× loss cancel to 1×).
+
+| File | What it shows |
+|:---|:---|
+| `speedup_heatmap.png` | Core grid: operation × matrix size, one cell per speedup. The colour scale is log₂, centred on 1×, so "2× faster" and "2× slower" are equally strong and opposite. Grey cells have no valid measurement. |
+| `scenario_cliff.png` | Per-element time (ns) from L1- to DRAM-resident matrices, one column per operation; the bytes touched per call are printed under each size, so the cache steps line up with the speedup collapsing toward 1×. |
+| `scenario_batch.png` | ns per point of one 4×4 transform over M points. |
+| `scenario_block.png` | Block copy and block multiply inside 512×512 matrices; time per element / per multiply-add. |
+| `scenario_tri.png` | Triangular solve and rank-k update; time per n³. |
+| `scenario_conv.png` | ns per pixel of the 3×3 blur. |
+| `scenario_chain.png` / `chain_heatmap.png` | Chain-length sweep: speedup per matrix size, absolute time at a cache-resident size, and the k × N heatmap. |
+| `scenario_fixed.png` / `fixed_size_heatmap.png` | Compile-time-N sweep: speedup per operation versus N, absolute `mul` time, and the operation × N heatmap. |
+| `conv_images.png` | The generated input image, the C blur, the C++ blur and their amplified difference, with the count of differing pixels. Needs the PGM files the benchmark writes to `<results>/matrix_raw/images/`; skipped when they are missing. |
+| `scenario_overview.png` | One bar per scenario variant: geometric-mean speedup over its sweep. |
+
+Each sweep figure has the normalised time (log y axis, both languages) on top and the speedup with a
+1× reference line underneath. The figures that need data a run did not produce (for example a
+`--scenarios chain` run has no cliff data) are skipped silently.
+
+`plot_results.py <results>/runs.csv` finds the images next to the CSVs automatically
+(`matrix_raw/images`).
 
 ---
 
@@ -227,9 +270,12 @@ mode produces a slightly larger 4:2.5 chart suited to README files and reports.
 ## Tests
 
 Unit tests live in [`tests/test_plot_results.py`](../tests/test_plot_results.py)
-and cover CSV/JSON parsing, speedup calculation, unit selection and end-to-end
-plot generation:
+(CSV/JSON parsing, speedup calculation, unit selection, end-to-end plot generation),
+[`tests/test_plot_scenarios.py`](../tests/test_plot_scenarios.py) (scenario namespacing, every
+scenario figure, the PGM reader, heatmaps, partial-data robustness) and
+[`tests/test_run_all_benchmarks.py`](../tests/test_run_all_benchmarks.py) (matrix row
+classification and option forwarding, against fake benchmark binaries):
 
 ```bash
-python3 -m unittest tests.test_plot_results -v
+python3 -m unittest tests.test_plot_results tests.test_plot_scenarios tests.test_run_all_benchmarks -v
 ```

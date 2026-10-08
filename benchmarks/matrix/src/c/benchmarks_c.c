@@ -5,10 +5,14 @@
  * row-major double matrices with naive O(N^3) multiply and no
  * machine-specific tuning.  The flexible CLI is shared with the C++
  * driver via benchmarks/bench_options.h.
+ *
+ * The "core" scenario (the op x size grid) lives here; the other scenarios
+ * (chain, fixed, cliff, batch, block, tri, conv) are in bench_scenarios_c.c.
  */
 #include "c_matrix/matrix.h"
 #include "bench_options.h"
 #include "bench_report.h"
+#include "bench_scenarios_c.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -147,6 +151,7 @@ int main(int argc, char *argv[]) {
     if (bench_parse_args(&o, argc, argv) != 0) return 2;
     if (o.help)     { bench_print_usage(argv[0], stdout); return 0; }
     if (o.list_ops) { bench_list_ops(stdout); return 0; }
+    if (o.list_scenarios) { bench_list_scenarios(stdout); return 0; }
 
     /* default CSV path if user did not specify one */
     if (!o.csv_enabled) {
@@ -158,10 +163,14 @@ int main(int argc, char *argv[]) {
     BenchReport rp;
     bench_report_begin(&rp, &o, "C Matrix Benchmark");
 
-    for (int si = 0; si < o.num_sizes; ++si) {
-        for (int oi = 0; oi < BENCH_NUM_ALL_OPS; ++oi)
-            run_op(&rp, &o, BENCH_ALL_OPS[oi], o.sizes[si]);
+    if (bench_scenario_enabled(&o, BENCH_SCN_CORE)) {
+        for (int si = 0; si < o.num_sizes; ++si) {
+            for (int oi = 0; oi < BENCH_NUM_ALL_OPS; ++oi)
+                run_op(&rp, &o, BENCH_ALL_OPS[oi], o.sizes[si]);
+        }
     }
+
+    bench_run_scenarios_c(&rp, &o);
 
     bench_report_end(&rp, &o);
     return 0;

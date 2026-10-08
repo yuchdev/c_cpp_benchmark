@@ -60,18 +60,19 @@ set(BENCH_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
 add_library(c_matrix STATIC
   src/c/matrix.c
   src/c/ops.c
+  src/c/scenarios.c
 )
 target_include_directories(c_matrix PUBLIC ${INCLUDE_DIR})
 target_compile_options(c_matrix PRIVATE ${C_BASELINE_FLAGS})
 
 # ---- C benchmark executable (portable baseline) ----
-add_executable(c_matrix_bench src/c/benchmarks_c.c)
+add_executable(c_matrix_bench src/c/benchmarks_c.c src/c/bench_scenarios_c.c)
 target_link_libraries(c_matrix_bench PRIVATE c_matrix m)
 target_include_directories(c_matrix_bench PRIVATE ${INCLUDE_DIR} ${BENCH_DIR})
 target_compile_options(c_matrix_bench PRIVATE ${C_BASELINE_FLAGS})
 
 # ---- C++ benchmark executable (aggressively optimized) ----
-add_executable(cpp_matrix_bench src/cpp/benchmarks_cpp.cpp)
+add_executable(cpp_matrix_bench src/cpp/benchmarks_cpp.cpp src/cpp/bench_scenarios_cpp.cpp)
 target_link_libraries(cpp_matrix_bench PRIVATE Eigen3::Eigen c_matrix)
 target_include_directories(cpp_matrix_bench PRIVATE ${INCLUDE_DIR} ${BENCH_DIR})
 target_compile_options(cpp_matrix_bench PRIVATE ${CPP_AGGRESSIVE_FLAGS})

@@ -12,7 +12,7 @@ A reproducible collection of C vs C++ micro-benchmarks organized into two suites
 | Suite | Directory | What it measures |
 |---|---|---|
 | **Generic** | `benchmarks/generic/` | Six paired benchmarks: sorting, element-wise transform, vector math, data layout, compile-time evaluation, compile-time kernel unrolling |
-| **Matrix** | `benchmarks/matrix/` | Matrix operations comparing hand-written C against Eigen (C++) at multiple sizes |
+| **Matrix** | `benchmarks/matrix/` | Matrix operations comparing hand-written C against Eigen (C++) at multiple sizes, plus seven paired **scenarios** (`chain`, `fixed`, `cliff`, `batch`, `block`, `tri`, `conv`): sweeps that each isolate one reason for, or limit to, the C++ advantage. Scenarios are informational — some deliberately show C tying or winning |
 
 The goal is to demonstrate **structural** (not stylistic) performance advantages of C++ over C by
 isolating a single compiler lever per test. C and C++ programs always perform identical logical
@@ -79,14 +79,37 @@ python3 scripts/run_all_benchmarks.py \
 python3 scripts/run_all_benchmarks.py --plot-only benchmark_results
 
 # Everything: both suites at representative sizes, every matrix op across a
-# 4..512 dynamic size sweep (fixed-size Eigen group always covers 3/4/8/16
-# regardless), best-of-5 repeats throughout, plus plots — one command
+# 4..512 dynamic size sweep, every matrix scenario (the compile-time-size sweep
+# always covers N = 2..16), best-of-5 repeats throughout, plus plots — one command
 python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir benchmark_results --all
+
+# Only some matrix scenarios (core,chain,fixed,cliff,batch,block,tri,conv)
+python3 scripts/run_all_benchmarks.py --skip-generic --matrix-scenarios chain,cliff --matrix-repeats 5 --plot
 ```
 
 `--all` cannot be combined with `--skip-generic`/`--skip-matrix`; any of `--sort`, `--callback`,
-`--struct-api`, `--buffer`, `--table`, `--fir`, `--matrix-sizes`, `--matrix-ops`, `--matrix-repeats`
-passed alongside it overrides just that one default.
+`--struct-api`, `--buffer`, `--table`, `--fir`, `--matrix-sizes`, `--matrix-ops`,
+`--matrix-scenarios`, `--matrix-repeats` passed alongside it overrides just that one default.
+
+---
+
+## Testing
+
+```bash
+# C/C++ correctness, Eigen cross-checks (every scenario kernel vs its C twin), CLI parser
+ctest --test-dir cmake-build --output-on-failure
+
+# Python unit tests: plotting, scenario charts, matrix row classification / option forwarding
+python3 -m unittest tests.test_plot_results tests.test_plot_scenarios tests.test_run_all_benchmarks -v
+
+# Full-pipeline integration test (slow: runs both suites end to end)
+python3 -m unittest tests.test_benchmark_results -v
+```
+
+The integration test's "95 % of paired core comparisons" rule can fail intermittently on small
+element-wise ops (`add`/`sub`/`scale`/`add3` at 32–128), where C and C++ genuinely tie; this predates
+the scenarios, so rerun before assuming a regression. Scenario results are asserted only where the
+C++ win held with a wide margin; cases where C wins or ties are documented, not asserted.
 
 ---
 
@@ -100,7 +123,9 @@ passed alongside it overrides just that one default.
 - Use `volatile` global function-pointer variables to prevent the optimizer from devirtualizing
   callback benchmarks (this is intentional, not a bug)
 - Timer: `CLOCK_MONOTONIC` via `clock_gettime`
-- Avoid VLAs, `alloca`, and compiler extensions in shared headers
+- Avoid VLAs, `alloca`, and compiler extensions in shared headers (the one exception is the
+  `#if defined(__GNUC__)`-guarded `BENCH_ESCAPE`/`BENCH_CLOBBER` barrier in `bench_scenarios.h`,
+  which has a portable fallback)
 
 ### C++ Sources (`*.cpp`, `*.hpp`)
 
@@ -143,6 +168,16 @@ passed alongside it overrides just that one default.
    suppress OS scheduling jitter.
 7. **Single-threaded.** All benchmarks are single-threaded. Do not enable Eigen OpenMP or thread
    pools.
+8. **Barriers around cheap kernels.** Scenario timing loops call `BENCH_ESCAPE(buffer)` once and
+   `BENCH_CLOBBER()` after every timed call, in both languages (`BENCH_MEASURE` in C, `measure()` in
+   C++). Otherwise the optimizer can hoist loop-invariant tiny-matrix work out of the loop and the
+   benchmark measures nothing. C scenario code uses that macro, not a function-pointer callback.
+9. **Iterations scale with cost.** In the scenario sweeps `--iters` is the count for large sizes;
+   cheap calls get more (`bench_iters_scaled`) so a timed sample spans well over the ~1 µs clock
+   resolution of macOS. Do not hard-code 20 iterations for tiny matrices.
+10. **One source of truth for scenarios.** Sweep points, row names (`bench_scn_name()`) and work
+    estimates live only in `benchmarks/matrix/benchmarks/bench_scenarios.h`; both drivers include it.
+    `scripts/run_all_benchmarks.py::classify_matrix_row` parses those names.
 
 ---
 
@@ -162,7 +197,19 @@ passed alongside it overrides just that one default.
 2. Add the Eigen equivalent to `benchmarks/matrix/src/cpp/benchmarks_cpp.cpp`.
 3. Register the operation name in the list inside `benchmarks/matrix/benchmarks/bench_options.h`.
 4. Add a correctness test in `tests/c/test_matrix.c` and `tests/cpp/test_eigen_ops.cpp`.
-5. Run `ctest --test-dir cmake-build --output-on-failure` to verify.
+5. The op also feeds the compile-time-size sweep: add it to `include/c_matrix/fixed_impl.inc`,
+   `src/c/bench_fixed_n.inc`, `scn::Fixed` in `include/cpp_matrix/eigen_scenarios.hpp` and
+   `run_fixed_n` in `src/cpp/bench_scenarios_cpp.cpp` (or document why it is excluded).
+6. Run `ctest --test-dir cmake-build --output-on-failure` to verify.
+
+## Adding a New Matrix Scenario
+
+Full checklist: `docs/matrix_benchmark_methodology.md` §8.4. In short: scenario bit and name in
+`bench_options.h`; sweep constants and a `bench_work_*` estimate in `bench_scenarios.h`; C kernel in
+`src/c/scenarios.c` and its Eigen twin in `include/cpp_matrix/eigen_scenarios.hpp`; a runner in
+`bench_scenarios_c.c` and `bench_scenarios_cpp.cpp`; the scenario token in `MATRIX_SCENARIOS`
+(`scripts/run_all_benchmarks.py`) and a `SweepSpec` in `scripts/plot_scenarios.py`; tests at every
+layer (C kernel, C-vs-Eigen cross-check, options/naming, Python, integration pair count).
 
 ---
 
@@ -175,19 +222,25 @@ passed alongside it overrides just that one default.
 | `runs.csv` | Long-format per-run timing table (`suite,group,benchmark,language,run,measure,metric,value,unit`) |
 | `summary.csv` | Grouped statistics (mean, min, max, stdev) |
 | `runs.json` | Averaged results in JSON format |
-| `results_{group}.csv` | Per-group CSV files (e.g., `results_a.csv`) |
+| `results_{group}.csv` | Per-group CSV files (e.g., `results_a.csv`; each matrix scenario has its own, e.g. `results_matrix_chain.csv`) |
+| `matrix_raw/` | Raw per-language matrix CSVs; `matrix_raw/images/` holds the `conv` scenario's PGM images |
 
 `plot_results.py` outputs:
-- One `<operation>.png` per operation
-- `overall_speedup.png` — bar chart with one bar per operation
-- `summary.md` — textual summary with average/best/worst speedup and winner
+- One `<operation>.png` per core operation (scenario operations are namespaced `matrix_<scenario>/<variant>` and get no per-operation chart)
+- `overall_speedup.png` — bar chart with one bar per core operation
+- `summary.md` — textual summary with average/best/worst speedup and winner, plus a `# Scenario Results` section
+- `speedup_heatmap.png`, `scenario_overview.png`, `scenario_{chain,fixed,cliff,batch,block,tri,conv}.png`,
+  `chain_heatmap.png`, `fixed_size_heatmap.png`, `conv_images.png` (from `plot_scenarios.py`;
+  green = C++ faster, purple = C faster)
 
 ---
 
 ## What NOT to Do
 
 - Do not add `printf` or file writes inside a timed benchmark loop.
-- Do not hard-code matrix sizes; they are set via `--sizes` CLI argument.
+- Do not hard-code matrix sizes; they are set via `--sizes` CLI argument. (Scenario sweeps are the
+  exception: they are defined once, in `bench_scenarios.h`, and shared by both drivers.)
+- Do not time tiny kernels without `BENCH_ESCAPE`/`BENCH_CLOBBER` and scaled iteration counts.
 - Do not enable `virtual` dispatch in C++ benchmark hot paths.
 - Do not use `alloca` or VLAs inside benchmark functions.
 - Do not change the LCG seed constants (`1664525` / `1013904223`) without updating both drivers.

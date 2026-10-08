@@ -22,8 +22,17 @@
  *   --seed    <n>         Base RNG seed.                          Default: 1
  *   --csv     <path>      CSV output path ("" / "-" disables).
  *   --format  <fmt>       table | csv | json  (stdout format).   Default: table
- *   --no-fixed            (C++ only) skip fixed-size matrix group.
+ *   --scenarios <list>    Comma-separated benchmark scenarios, or "all".
+ *                         core,chain,fixed,cliff,batch,block,tri,conv
+ *                         Default: all.  (--sizes/--ops shape "core"; --ops
+ *                         also filters "fixed".  The other sweeps are fixed
+ *                         in bench_scenarios.h so C and C++ share them.)
+ *   --no-fixed            Skip the fixed-size sweep (same as dropping "fixed"
+ *                         from --scenarios, but order-independent).
+ *   --image-dir <path>    Directory (must exist) for the "conv" scenario's PGM
+ *                         images (input + blurred output). Default: none.
  *   --list-ops            Print the available operation names and exit.
+ *   --list-scenarios      Print the available scenario names and exit.
  *   --help                Print usage and exit.
  *
  * Backward compatibility: a single bare positional argument is still treated
@@ -57,8 +66,11 @@ typedef struct {
     char         csv_path[BENCH_PATH_LEN];
     int          csv_enabled;
     BenchFormat  format;
-    int          fixed_enabled;  /* C++ fixed-size group (ignored by C) */
+    int          fixed_enabled;  /* fixed-size sweep; cleared by --no-fixed */
+    unsigned int scenarios;      /* BenchScenario bitmask (default: all) */
+    char         image_dir[BENCH_PATH_LEN]; /* "" => do not write images */
     int          list_ops;
+    int          list_scenarios;
     int          help;
     int          error;          /* nonzero => parse error */
 } BenchOptions;
@@ -70,6 +82,24 @@ static const char *const BENCH_ALL_OPS[] = {
 };
 static const int BENCH_NUM_ALL_OPS =
     (int)(sizeof(BENCH_ALL_OPS) / sizeof(BENCH_ALL_OPS[0]));
+
+/* Benchmark scenarios selectable with --scenarios (bitmask values). */
+typedef enum {
+    BENCH_SCN_CORE  = 1 << 0,  /* the original op x size grid (+ shared --sizes/--ops) */
+    BENCH_SCN_CHAIN = 1 << 1,  /* A1 + A2 + ... + Ak expression-chain depth sweep      */
+    BENCH_SCN_FIXED = 1 << 2,  /* compile-time-N sweep, N = 2..16                      */
+    BENCH_SCN_CLIFF = 1 << 3,  /* cache-cliff size sweep, per-element time             */
+    BENCH_SCN_BATCH = 1 << 4,  /* one 4x4 transform applied to M points                */
+    BENCH_SCN_BLOCK = 1 << 5,  /* submatrix copy / multiply, block-size sweep          */
+    BENCH_SCN_TRI   = 1 << 6,  /* triangular solve + symmetric rank-k update           */
+    BENCH_SCN_CONV  = 1 << 7   /* 3x3 convolution (blur) on a generated image          */
+} BenchScenario;
+
+static const char *const BENCH_SCENARIO_NAMES[] = {
+    "core", "chain", "fixed", "cliff", "batch", "block", "tri", "conv"
+};
+#define BENCH_NUM_SCENARIOS 8
+#define BENCH_SCN_ALL ((1u << BENCH_NUM_SCENARIOS) - 1u)
 
 static inline void bench_options_defaults(BenchOptions *o) {
     memset(o, 0, sizeof(*o));
@@ -85,7 +115,10 @@ static inline void bench_options_defaults(BenchOptions *o) {
     o->csv_path[0]    = '\0';
     o->format         = BENCH_FMT_TABLE;
     o->fixed_enabled  = 1;
+    o->scenarios      = BENCH_SCN_ALL;
+    o->image_dir[0]   = '\0';
     o->list_ops       = 0;
+    o->list_scenarios = 0;
     o->help           = 0;
     o->error          = 0;
 }
@@ -110,6 +143,39 @@ static inline int bench_iters_for(const BenchOptions *o, const char *name, size_
         return it < 1 ? 1 : it;
     }
     return o->iters;
+}
+
+/* True when `scn` (a BenchScenario value) was selected.  The fixed-size sweep also
+ * honours the legacy --no-fixed switch regardless of option order. */
+static inline int bench_scenario_enabled(const BenchOptions *o, BenchScenario scn) {
+    if (scn == BENCH_SCN_FIXED && !o->fixed_enabled) return 0;
+    return (o->scenarios & (unsigned int)scn) != 0u;
+}
+
+/*
+ * Iteration scaling for runs that reach tiny problem sizes.
+ *
+ * `work` is a rough operation count for one call (elements touched, or N^3 for
+ * GEMM-like kernels).  Cheap calls get their iteration count multiplied so one
+ * timed sample spans well over the clock resolution (macOS CLOCK_MONOTONIC is
+ * only ~1 us, so 20 calls of a 300 ns kernel are mostly quantisation noise);
+ * expensive calls keep the plain count.  Pure functions of their arguments, so
+ * the C and C++ drivers always agree.
+ */
+#define BENCH_SCALE_TARGET_WORK 262144.0
+#define BENCH_SCALE_MAX         65536.0
+static inline double bench_scale_for_work(double work) {
+    double scale = BENCH_SCALE_TARGET_WORK / (work > 1.0 ? work : 1.0);
+    if (scale < 1.0) scale = 1.0;
+    if (scale > BENCH_SCALE_MAX) scale = BENCH_SCALE_MAX;
+    return scale;
+}
+
+/* --iters multiplied by bench_scale_for_work(work). */
+static inline int bench_iters_scaled(const BenchOptions *o, double work) {
+    double it = (double)o->iters * bench_scale_for_work(work);
+    if (it > 2.0e9) it = 2.0e9;
+    return (int)it;
 }
 
 static inline int bench__valid_op_name(const char *name) {
@@ -176,6 +242,30 @@ static inline int bench__parse_ops(BenchOptions *o, const char *spec) {
     return o->num_ops == 0 ? 1 : 0;
 }
 
+/* Parse "chain,fixed,..." or "all" into o->scenarios. Returns 0 on success. */
+static inline int bench__parse_scenarios(BenchOptions *o, const char *spec) {
+    if (strcmp(spec, "all") == 0 || strcmp(spec, "ALL") == 0) {
+        o->scenarios = BENCH_SCN_ALL;
+        return 0;
+    }
+    char buf[256];
+    strncpy(buf, spec, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    unsigned int mask = 0u;
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        while (*tok == ' ') ++tok;
+        if (*tok == '\0') continue;
+        int found = 0;
+        for (int i = 0; i < BENCH_NUM_SCENARIOS; ++i)
+            if (strcmp(BENCH_SCENARIO_NAMES[i], tok) == 0) { mask |= 1u << i; found = 1; break; }
+        if (!found) return 1;
+    }
+    if (mask == 0u) return 1;
+    o->scenarios = mask;
+    return 0;
+}
+
 static inline void bench_print_usage(const char *prog, FILE *out) {
     fprintf(out,
         "Usage: %s [options] [csv_path]\n"
@@ -193,8 +283,12 @@ static inline void bench_print_usage(const char *prog, FILE *out) {
         "  --seed    <n>         Base RNG seed (default: 1)\n"
         "  --csv     <path>      CSV output path (\"\"/\"-\" disables)\n"
         "  --format  <fmt>       table | csv | json (default: table)\n"
-        "  --no-fixed            Skip fixed-size matrix group (C++ only)\n"
+        "  --scenarios <list>    Scenarios: core,chain,fixed,cliff,batch,block,tri,conv\n"
+        "                        or \"all\" (default: all)\n"
+        "  --no-fixed            Skip the fixed-size (N=2..16) sweep\n"
+        "  --image-dir <path>    Existing directory for conv-scenario PGM images\n"
         "  --list-ops            List available operations and exit\n"
+        "  --list-scenarios      List available scenarios and exit\n"
         "  --help                Show this help and exit\n",
         prog);
 }
@@ -203,6 +297,12 @@ static inline void bench_list_ops(FILE *out) {
     fprintf(out, "Available operations:\n");
     for (int i = 0; i < BENCH_NUM_ALL_OPS; ++i)
         fprintf(out, "  %s\n", BENCH_ALL_OPS[i]);
+}
+
+static inline void bench_list_scenarios(FILE *out) {
+    fprintf(out, "Available scenarios:\n");
+    for (int i = 0; i < BENCH_NUM_SCENARIOS; ++i)
+        fprintf(out, "  %s\n", BENCH_SCENARIO_NAMES[i]);
 }
 
 /* Returns 0 on success; sets o->error on parse failure. */
@@ -237,8 +337,19 @@ static inline int bench_parse_args(BenchOptions *o, int argc, char **argv) {
             o->help = 1; return 0;
         } else if (strcmp(arg, "--list-ops") == 0) {
             o->list_ops = 1; return 0;
+        } else if (strcmp(arg, "--list-scenarios") == 0) {
+            o->list_scenarios = 1; return 0;
         } else if (strcmp(arg, "--no-fixed") == 0) {
             o->fixed_enabled = 0;
+        } else if (strcmp(arg, "--scenarios") == 0) {
+            const char *v; BENCH_NEXT_VALUE(v);
+            if (bench__parse_scenarios(o, v)) {
+                o->error = 1; fprintf(stderr, "error: invalid --scenarios '%s'\n", v); return 1;
+            }
+        } else if (strcmp(arg, "--image-dir") == 0) {
+            const char *v; BENCH_NEXT_VALUE(v);
+            strncpy(o->image_dir, v, BENCH_PATH_LEN - 1);
+            o->image_dir[BENCH_PATH_LEN - 1] = '\0';
         } else if (strcmp(arg, "--sizes") == 0) {
             const char *v; BENCH_NEXT_VALUE(v);
             if (bench__parse_sizes(o, v)) {

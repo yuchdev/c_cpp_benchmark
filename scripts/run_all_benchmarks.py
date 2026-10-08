@@ -13,7 +13,7 @@ import subprocess
 import time
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 #: Generic benchmark definitions as ``(group, language, executable_name)`` tuples.
@@ -37,6 +37,13 @@ MATRIX_BENCHMARKS = [
     ("c", "c_matrix_bench", "c_results.csv"),
     ("cpp", "cpp_matrix_bench", "cpp_results.csv"),
 ]
+
+
+#: Scenario tokens that may follow the language prefix in a matrix row name, e.g.
+#: ``cpp_fixed_mul_4x4`` or ``c_chain_add_n256_8x256`` (grammar: see
+#: ``benchmarks/matrix/benchmarks/bench_scenarios.h``).  Each scenario lands in its own
+#: ``matrix_<scenario>`` group so it never mixes with the core ``matrix`` operations.
+MATRIX_SCENARIOS = ("chain", "fixed", "cliff", "batch", "block", "tri", "conv")
 
 
 def find_executable(build_dir: Path, name: str) -> Path:
@@ -236,28 +243,38 @@ def run_generic(build_dir: Path, repeats: int, rows: List[Dict[str, object]], si
                 rows.append(row)
 
 
-def _extract_matrix_op(name: str, rows_n: int) -> str:
-    """Extract the pure operation name from a compound matrix benchmark name.
+def classify_matrix_row(name: str) -> Tuple[str, str]:
+    """Split a matrix CSV row name into ``(group, benchmark)``.
 
-    Strips the language/type prefix (``c_``, ``cpp_dynamic_``, ``cpp_fixed_``)
-    and the size suffix (``_NxN``).  For example::
+    The ``<rows>x<cols>`` suffix and the language prefix are stripped.  Rows from
+    the core op x size grid keep group ``"matrix"`` and the bare op name; rows from
+    a scenario go to group ``"matrix_<scenario>"`` with the scenario-specific
+    variant as the benchmark name.  Examples::
 
-        c_mul_128x128       (rows=128) → mul
-        cpp_dynamic_matvec_512x512  (rows=512) → matvec
-        cpp_fixed_transpose_mul_4x4 (rows=4)   → transpose_mul
+        c_mul_128x128                  -> ("matrix", "mul")
+        cpp_dynamic_matvec_512x512     -> ("matrix", "matvec")
+        cpp_fixed_transpose_mul_4x4    -> ("matrix_fixed", "transpose_mul")
+        c_chain_add_n256_8x256         -> ("matrix_chain", "add_n256")
+        cpp_batch_xform4_1024x4        -> ("matrix_batch", "xform4")
+
+    :param name: Row name as written to the benchmark CSV.
+    :returns: ``(group, benchmark)``.
     """
-    suffix = f"_{rows_n}x{rows_n}"
-    if name.endswith(suffix):
-        name = name[: -len(suffix)]
-    for prefix in ("cpp_dynamic_", "cpp_fixed_", "c_"):
-        if name.startswith(prefix):
-            return name[len(prefix):]
-    return name
+    stem = re.sub(r"_\d+x\d+$", "", name)
+    for prefix in ("cpp_dynamic_", "cpp_", "c_"):
+        if stem.startswith(prefix):
+            stem = stem[len(prefix):]
+            break
+    head, _, rest = stem.partition("_")
+    if head in MATRIX_SCENARIOS and rest:
+        return f"matrix_{head}", rest
+    return "matrix", stem
 
 
 def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]],
                 sizes: Optional[str] = None, ops: Optional[str] = None,
-                repeats: Optional[int] = None) -> None:
+                repeats: Optional[int] = None,
+                scenarios: Optional[str] = None) -> None:
     """Execute matrix benchmarks and ingest their generated CSV outputs.
 
     :param build_dir: Build directory where matrix benchmark executables exist.
@@ -271,6 +288,10 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]],
         default, which is already every registered operation.
     :param repeats: Optional ``--repeats`` value forwarded to both matrix
         binaries. ``None`` keeps each binary's own default (best-of-1).
+    :param scenarios: Optional ``--scenarios`` value forwarded to both matrix
+        binaries (comma list or ``"all"``). ``None`` keeps the binaries' default,
+        which is every scenario.  PGM images from the ``conv`` scenario are always
+        collected under ``<output_dir>/matrix_raw/images``.
     :returns: ``None``.
     :raises FileNotFoundError: If a matrix benchmark executable is not found.
     :raises RuntimeError: If a matrix benchmark process fails.
@@ -280,7 +301,12 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]],
     raw_dir = output_dir / "matrix_raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    extra_args: List[str] = []
+    images_dir = raw_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    extra_args: List[str] = ["--image-dir", str(images_dir)]
+    if scenarios:
+        extra_args += ["--scenarios", scenarios]
     if sizes:
         extra_args += ["--sizes", sizes]
     if ops:
@@ -309,12 +335,13 @@ def run_matrix(build_dir: Path, output_dir: Path, rows: List[Dict[str, object]],
         with out_csv.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                size = int(row["rows"])
+                size = int(row["rows"])  # the sweep parameter of every scenario
+                group, benchmark = classify_matrix_row(row["name"])
                 rows.append(
                     {
                         "suite": "matrix",
-                        "group": "matrix",
-                        "benchmark": _extract_matrix_op(row["name"], size),
+                        "group": group,
+                        "benchmark": benchmark,
                         "language": lang,
                         "run": 1,
                         "measure": size,
@@ -449,7 +476,8 @@ def plot_from_dir(results_dir: Path, plots_dir: Path, *, chart: str = "line",
         print(f"Warning: no results parsed from {source}", file=sys.stderr)
         return
     written = plot_results.generate_all(
-        results, plots_dir, chart=chart, article_mode=article_mode
+        results, plots_dir, chart=chart, article_mode=article_mode,
+        images_dir=results_dir / "matrix_raw" / "images",
     )
     print(f"Generated {len(written)} plot artifacts in {plots_dir}")
 
@@ -472,8 +500,8 @@ def main() -> int:
     parser.add_argument("--all", action="store_true",
                         help="Run every benchmark in both suites with full matrix op/size "
                              "coverage and representative generic sizes, then plot the results. "
-                             "Equivalent to setting --matrix-ops all, a broad --matrix-sizes "
-                             "sweep, --sort/--callback/--struct-api/--buffer/--table to the "
+                             "Equivalent to setting --matrix-ops all, --matrix-scenarios all, a broad "
+                             "--matrix-sizes sweep, --sort/--callback/--struct-api/--buffer/--table to the "
                              "README-recommended sizes (unless already given), and --plot. "
                              "Cannot be combined with --skip-generic/--skip-matrix.")
 
@@ -490,6 +518,10 @@ def main() -> int:
     parser.add_argument("--matrix-ops",
                         help="--ops value forwarded to both matrix binaries: comma list or 'all' "
                              "(default: each binary's own default, which is already all operations)")
+    parser.add_argument("--matrix-scenarios",
+                        help="--scenarios value forwarded to both matrix binaries: comma list of "
+                             "core,chain,fixed,cliff,batch,block,tri,conv or 'all' "
+                             "(default: each binary's own default, which is every scenario)")
     parser.add_argument("--matrix-repeats", type=int,
                         help="--repeats value forwarded to both matrix binaries, i.e. how many "
                              "independent runs to keep the best-of (default: each binary's own, 1)")
@@ -527,6 +559,8 @@ def main() -> int:
         # sweep (well beyond the binaries' 32,128,512 default), best-of-5 repeats.
         if args.matrix_ops is None:
             args.matrix_ops = "all"
+        if args.matrix_scenarios is None:
+            args.matrix_scenarios = "all"
         if args.matrix_sizes is None:
             args.matrix_sizes = "4,8,16,32,64,128,256,512"
         if args.matrix_repeats is None:
@@ -574,7 +608,8 @@ def main() -> int:
         run_generic(build_dir, args.repeats, rows, sizing)
     if not args.skip_matrix:
         run_matrix(build_dir, output_dir, rows, sizes=args.matrix_sizes,
-                   ops=args.matrix_ops, repeats=args.matrix_repeats)
+                   ops=args.matrix_ops, repeats=args.matrix_repeats,
+                   scenarios=args.matrix_scenarios)
     write_outputs(rows, output_dir)
 
     print(f"Wrote {len(rows)} rows to {output_dir / 'runs.csv'}")

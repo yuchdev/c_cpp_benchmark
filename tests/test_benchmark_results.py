@@ -15,6 +15,13 @@ enabled and verifies:
 4. All five generic benchmark groups individually report average speedup > 1.0.
 5. Core compute-bound matrix operations (mul, matvec, transpose_mul) show
    C++ superiority at every measured size.
+6. Every matrix *scenario* (chain, fixed, cliff, batch, block, tri, conv) produced
+   its result file and figures, covers its full sweep for both languages, and the
+   structural claims that hold with a wide margin on any machine are true (see
+   ``TestScenarioFindings``).  Scenarios are informational by design: the 95 %
+   rule above deliberately does **not** include them, and cases where C wins
+   (3x3 convolution, small triangular solves, large block copies) are documented
+   rather than asserted.
 
 Benchmark sizes used here match the representative settings from README.md,
 trimmed slightly for CI speed (``--sort 1000000`` instead of 10 M, ``--repeats 3``).
@@ -23,7 +30,7 @@ The test module is **skipped entirely** when the build directory is absent —
 set the ``BUILD_DIR`` environment variable to override the default
 (``<repo_root>/cmake-build``).
 
-These tests take ~30–90 s and require:
+These tests take ~1–2 min and require:
 * Built benchmark executables (see Build Instructions in README.md).
 * Matplotlib (``pip install matplotlib``).
 """
@@ -45,6 +52,7 @@ _SCRIPTS = _REPO_ROOT / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 import plot_results as pr  # noqa: E402  (requires _SCRIPTS on path)
+import plot_scenarios as ps  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Module-level shared state — pipeline runs once, all test classes share it.
@@ -90,6 +98,9 @@ def setUpModule() -> None:  # noqa: N802 (unittest hook naming)
         "--build-dir", str(bd),
         "--output-dir", str(_results_dir),
         "--repeats", "3",
+        # Best-of-3 for the matrix suite too: the fixed-size sweep times single-digit
+        # nanosecond kernels, which are too noisy at the binaries' default of 1.
+        "--matrix-repeats", "3",
         # Generic benchmark sizes — representative but CI-friendly
         "--sort",       "1000000",
         "--callback",   "10000000",
@@ -130,11 +141,17 @@ def _dir() -> Path:
 # ---------------------------------------------------------------------------
 
 def _paired_speedups() -> List[Tuple[str, float, float]]:
-    """Return ``(operation, size, speedup)`` for every matched C/C++ pair."""
+    """Return ``(operation, size, speedup)`` for every matched core/generic C/C++ pair.
+
+    Matrix scenarios are excluded: they are informational and are checked separately
+    in :class:`TestScenarioFindings`.
+    """
     results = pr.load_results(_dir() / "runs.json")
     ops = pr.group_operations(results)
     out: List[Tuple[str, float, float]] = []
     for op_name, op_data in ops.items():
+        if pr.is_scenario_operation(op_name):
+            continue
         c_series = op_data.series.get(pr.LANG_C, {})
         cpp_series = op_data.series.get(pr.LANG_CPP, {})
         for size, c_time in c_series.items():
@@ -402,6 +419,149 @@ class TestCppSuperiority(unittest.TestCase):
                     f"Matrix '{op_name}' at size {int(size)}: speedup {speedup:.3f}× — "
                     f"C++ must outperform C for compute-bound operations",
                 )
+
+
+# ===========================================================================
+# Test class 4 — matrix scenarios: files, completeness, findings
+# ===========================================================================
+
+#: scenario -> number of (variant, sweep point) pairs both languages must report.
+_EXPECTED_PAIRS = {
+    "chain": 5 * 15,   # 5 matrix sizes x chain length k = 2..16
+    "fixed": 9 * 15,   # 9 ops x N = 2..16
+    "cliff": 3 * 8,    # 3 ops x 8 sizes
+    "batch": 6,        # 6 point counts
+    "block": 2 * 7,    # copy + mul x 7 block sizes
+    "tri": 2 * 5,      # trsm + syrk x 5 sizes
+    "conv": 5,         # 5 image sizes
+}
+
+_SCENARIO_FIGURES = (
+    "speedup_heatmap.png", "scenario_overview.png", "scenario_chain.png", "chain_heatmap.png",
+    "scenario_fixed.png", "fixed_size_heatmap.png", "scenario_cliff.png", "scenario_batch.png",
+    "scenario_block.png", "scenario_tri.png", "scenario_conv.png", "conv_images.png",
+)
+
+
+def _scenario_ops(scenario: str):
+    """``{variant: OperationData}`` for one scenario from runs.json."""
+    ops = pr.group_operations(pr.load_results(_dir() / "runs.json"))
+    return ps._scenario_ops(ops, f"matrix_{scenario}")
+
+
+class TestScenarioOutputs(unittest.TestCase):
+    """Every scenario must leave its result file and figures behind."""
+
+    def test_group_csv_per_scenario(self):
+        for scenario in _EXPECTED_PAIRS:
+            with self.subTest(scenario=scenario):
+                self.assertTrue((_dir() / f"results_matrix_{scenario}.csv").exists())
+
+    def test_scenario_figures(self):
+        for name in _SCENARIO_FIGURES:
+            with self.subTest(figure=name):
+                self.assertTrue((_dir() / "plots" / name).exists())
+
+    def test_conv_images_written_by_both_languages(self):
+        for name in ("conv_input_c", "conv_output_c", "conv_input_cpp", "conv_output_cpp"):
+            with self.subTest(image=name):
+                self.assertTrue((_dir() / "matrix_raw" / "images" / f"{name}.pgm").exists())
+
+    def test_summary_md_has_scenario_section(self):
+        content = (_dir() / "plots" / "summary.md").read_text(encoding="utf-8")
+        self.assertIn("# Scenario Results", content)
+        for title in ps.SCENARIO_TITLES.values():
+            self.assertIn(f"## {title}", content)
+
+
+class TestScenarioContent(unittest.TestCase):
+    """Both languages must cover every sweep point of every scenario."""
+
+    def test_both_languages_and_positive_values(self):
+        with (_dir() / "runs.csv").open(encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        for scenario in _EXPECTED_PAIRS:
+            with self.subTest(scenario=scenario):
+                mine = [r for r in rows if r["group"] == f"matrix_{scenario}"]
+                self.assertEqual({r["language"] for r in mine}, {"c", "cpp"})
+                for r in mine:
+                    self.assertGreater(float(r["value"]), 0, f"non-positive timing: {r}")
+
+    def test_full_sweep_is_paired(self):
+        for scenario, expected in _EXPECTED_PAIRS.items():
+            with self.subTest(scenario=scenario):
+                pairs = sum(len(ps.speedup_by_size(od)) for od in _scenario_ops(scenario).values())
+                self.assertEqual(pairs, expected,
+                                 f"{scenario}: expected {expected} C/C++ pairs, got {pairs}")
+
+    def test_scenarios_do_not_leak_into_core_operations(self):
+        ops = pr.group_operations(pr.load_results(_dir() / "runs.json"))
+        # core `mul` is measured at the default matrix sizes only, not at N = 2..16
+        self.assertTrue(all(size >= 32 for size in ops["mul"].sizes), ops["mul"].sizes)
+
+
+class TestScenarioFindings(unittest.TestCase):
+    """Structural claims that held with >= 2x margin when measured, on any machine.
+
+    Deliberately *not* asserted (C wins or ties there, and that is part of the story):
+    the 3x3 convolution, small triangular solves, and large strided block copies.
+    """
+
+    def test_fused_chain_wins_at_cache_resident_sizes(self):
+        ops = _scenario_ops("chain")
+        for n in (32, 64, 128):
+            with self.subTest(n=n):
+                ratios = ps.speedup_by_size(ops[f"add_n{n}"])
+                self.assertGreater(ratios[16.0], 1.0,
+                                   f"k=16 chain at N={n}: one fused pass must beat 15 passes")
+
+    def test_compile_time_sizes_win_overall(self):
+        ratios = [r for od in _scenario_ops("fixed").values()
+                  for r in ps.speedup_by_size(od).values()]
+        gm = ps.geomean(ratios)
+        self.assertGreater(gm, 1.0, f"fixed-size geometric-mean speedup {gm:.2f}x")
+
+    def test_matvec_wins_while_cache_resident(self):
+        ratios = ps.speedup_by_size(_scenario_ops("cliff")["matvec"])
+        for n in (16, 32, 64, 128, 256, 512):
+            with self.subTest(n=n):
+                self.assertGreater(ratios[float(n)], 1.0)
+
+    def test_batch_transform_wins_while_cache_resident(self):
+        # Only the smallest sweep point is asserted: a 4x4 transform is nearly
+        # memory-bound, so the larger point counts hover around 1.0x run to run.
+        ratios = ps.speedup_by_size(_scenario_ops("batch")["xform4"])
+        self.assertGreater(ratios[1024.0], 1.0, "1K points (L1/L2-resident) must favour SIMD")
+
+    def test_block_multiply_wins_from_16_up(self):
+        ratios = ps.speedup_by_size(_scenario_ops("block")["mul_n512"])
+        for bs in (16, 32, 64, 128, 256):
+            with self.subTest(bs=bs):
+                self.assertGreater(ratios[float(bs)], 1.0)
+
+    def test_rank_k_update_wins_from_32_up(self):
+        ratios = ps.speedup_by_size(_scenario_ops("tri")["syrk"])
+        for n in (32, 64, 128, 256):
+            with self.subTest(n=n):
+                self.assertGreater(ratios[float(n)], 1.0)
+
+    def test_convolution_images_agree(self):
+        """Same input, same kernel: the two languages must blur identically.
+
+        FMA contraction may flip a pixel by one 8-bit level; nothing more is allowed.
+        """
+        images = _dir() / "matrix_raw" / "images"
+        in_c = ps.read_pgm(images / "conv_input_c.pgm")
+        in_cpp = ps.read_pgm(images / "conv_input_cpp.pgm")
+        out_c = ps.read_pgm(images / "conv_output_c.pgm")
+        out_cpp = ps.read_pgm(images / "conv_output_cpp.pgm")
+        self.assertEqual(in_c.shape, in_cpp.shape)
+        self.assertTrue((in_c == in_cpp).all(), "the two languages generated different input images")
+        self.assertEqual(out_c.shape, (in_c.shape[0] - 2, in_c.shape[1] - 2))
+        self.assertEqual(out_c.shape, out_cpp.shape)
+        diff = abs(out_c.astype(int) - out_cpp.astype(int))
+        self.assertLessEqual(int(diff.max()), 1)
+        self.assertLess((diff > 0).mean(), 0.005)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ C vs C++ micro-benchmark collection. Two suites:
 - **`benchmarks/generic/`** — five paired benchmarks (a–e): sorting, element-wise transform,
   vec4 math, memory layout, compile-time evaluation
 - **`benchmarks/matrix/`** — matrix operations comparing hand-written C vs Eigen at configurable
-  sizes
+  sizes, plus seven paired scenario sweeps (`chain`, `fixed`, `cliff`, `batch`, `block`, `tri`,
+  `conv`); scenarios are informational and some deliberately show C tying or winning
 
 ## Build & Test (run from repository root)
 
@@ -47,7 +48,7 @@ cmake --build cmake-build
 ctest --test-dir cmake-build --output-on-failure
 
 # Python tests
-python3 -m unittest tests.test_plot_results -v
+python3 -m unittest tests.test_plot_results tests.test_plot_scenarios tests.test_run_all_benchmarks -v
 ```
 
 ## Code Style
@@ -64,6 +65,9 @@ python3 -m unittest tests.test_plot_results -v
 4. Use LCG constants **`1664525` / `1013904223`** (same seed in C and C++ drivers).
 5. Warmup before measuring; keep the **minimum average** across `--repeats` runs.
 6. Benchmarks are **single-threaded** — do not enable Eigen OpenMP.
+7. Scenario timing loops use **`BENCH_ESCAPE` / `BENCH_CLOBBER`** (from `bench_scenarios.h`) in both
+   languages, and **scaled iteration counts** for cheap kernels (never a fixed 20 for tiny matrices).
+8. Scenario sweeps and CSV row names are defined **only** in `benchmarks/matrix/benchmarks/bench_scenarios.h`.
 
 ## Common Pitfalls
 

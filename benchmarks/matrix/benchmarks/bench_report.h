@@ -7,7 +7,8 @@
  *
  * The CSV schema is intentionally unchanged from earlier versions:
  *     name,rows,cols,iterations,avg_ns
- * so that scripts/summarize_results.py keeps working.
+ * (avg_ns now carries three decimals: sub-10 ns kernels in the fixed-size sweep
+ * need the extra resolution for a meaningful C/C++ ratio.)
  */
 #ifndef BENCH_REPORT_H
 #define BENCH_REPORT_H
@@ -61,22 +62,22 @@ static inline void bench_report_row(BenchReport *rp, const char *name,
                                     int iters, double avg_ns) {
     switch (rp->format) {
         case BENCH_FMT_TABLE:
-            printf("%-52s  %5zux%-5zu  iters=%3d  %16.1f\n",
+            printf("%-52s  %5zux%-5zu  iters=%3d  %16.3f\n",
                    name, rows, cols, iters, avg_ns);
             break;
         case BENCH_FMT_CSV:
-            printf("%s,%zu,%zu,%d,%.1f\n", name, rows, cols, iters, avg_ns);
+            printf("%s,%zu,%zu,%d,%.3f\n", name, rows, cols, iters, avg_ns);
             break;
         case BENCH_FMT_JSON:
             if (rp->json_count > 0) printf(",\n");
             printf("    {\"name\": \"%s\", \"rows\": %zu, \"cols\": %zu, "
-                   "\"iterations\": %d, \"avg_ns\": %.1f}",
+                   "\"iterations\": %d, \"avg_ns\": %.3f}",
                    name, rows, cols, iters, avg_ns);
             ++rp->json_count;
             break;
     }
     if (rp->csv)
-        fprintf(rp->csv, "%s,%zu,%zu,%d,%.1f\n", name, rows, cols, iters, avg_ns);
+        fprintf(rp->csv, "%s,%zu,%zu,%d,%.3f\n", name, rows, cols, iters, avg_ns);
 }
 
 static inline void bench_report_section(BenchReport *rp, const char *label) {

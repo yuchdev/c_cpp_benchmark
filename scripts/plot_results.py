@@ -5,10 +5,14 @@ Consumes benchmark results produced by the C/C++ benchmark framework (CSV or
 JSON) and produces publication-quality plots that compare C and C++ performance:
 
 * one line chart per operation (e.g. ``sort.png``, ``mul.png``),
-* an ``overall_speedup.png`` bar chart, and
-* a ``summary.md`` report.
+* an ``overall_speedup.png`` bar chart,
+* a ``summary.md`` report, and
+* for the matrix *scenarios* (``matrix_chain``, ``matrix_fixed``, ``matrix_cliff``,
+  ``matrix_batch``, ``matrix_block``, ``matrix_tri``, ``matrix_conv``): a speedup
+  heatmap of the core op x size grid plus one figure per scenario, drawn by
+  :mod:`plot_scenarios`.
 
-Only Matplotlib and the Python standard library are used.
+Only Matplotlib (and the NumPy it depends on) and the Python standard library are used.
 
 Supported input schemas
 ------------------------
@@ -55,6 +59,31 @@ LANG_C = "c"
 LANG_CPP = "cpp"
 LANG_DISPLAY = {LANG_C: "C", LANG_CPP: "C++"}
 
+#: Matrix scenarios are emitted into groups named ``matrix_<scenario>``.  Their
+#: operations are namespaced ``"<group>/<benchmark>"`` (e.g. ``matrix_fixed/mul``)
+#: so they cannot collide with the core ``mul`` and are kept out of the per-operation
+#: charts and the overall bar chart, which describe the core matrix/generic suites.
+SCENARIO_GROUP_PREFIX = "matrix_"
+
+
+def is_scenario_group(group: str) -> bool:
+    """Return whether ``group`` names a matrix scenario (``matrix_<scenario>``).
+
+    :param group: Group name from the results file.
+    :returns: ``True`` for scenario groups, ``False`` for generic groups and the
+        core ``matrix`` group.
+    """
+    return str(group).startswith(SCENARIO_GROUP_PREFIX)
+
+
+def is_scenario_operation(operation: str) -> bool:
+    """Return whether an operation key is a namespaced scenario operation.
+
+    :param operation: Operation key as produced by :func:`group_operations`.
+    :returns: ``True`` for keys of the form ``"matrix_<scenario>/<benchmark>"``.
+    """
+    return "/" in operation
+
 
 @dataclass(frozen=True)
 class BenchmarkResult:
@@ -71,6 +100,9 @@ class BenchmarkResult:
     time_sec: float
     unit: str = "sec"
     samples: int = 1
+    #: Source group (``"a"``..``"f"``, ``"matrix"``, ``"matrix_<scenario>"``); empty for
+    #: the simple schema.
+    group: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +239,11 @@ def _operation_for_rich(suite: str, group: str, benchmark: str,
     :param benchmark: Benchmark name.
     :param split_groups: Set of ``(suite, group)`` keys that use the
         shared-name layout and must be split per benchmark.
-    :returns: The operation key/label.
+    :returns: The operation key/label.  Scenario groups are namespaced as
+        ``"<group>/<benchmark>"``.
     """
+    if is_scenario_group(group):
+        return f"{group}/{benchmark}"
     if (suite, group) in split_groups:
         return benchmark
     return GROUP_LABELS.get(group, group)
@@ -236,20 +271,21 @@ def _rows_to_results(raw_rows: List[Dict[str, object]]) -> List[BenchmarkResult]
         if len(langs) > 1
     }
 
-    buckets: Dict[Tuple[str, str, str, float], List[Tuple[float, str]]] = {}
+    buckets: Dict[Tuple[str, str, str, str, float], List[Tuple[float, str]]] = {}
     for r in raw_rows:
         suite = str(r["suite"])
+        group = str(r["group"])
         operation = _operation_for_rich(
-            suite, str(r["group"]), str(r["benchmark"]), split_groups
+            suite, group, str(r["benchmark"]), split_groups
         )
         lang = normalize_language(r["language"])
         size = float(r["measure"])
         unit = str(r.get("unit", "sec"))
         sec = to_seconds(float(r["value"]), unit)
-        buckets.setdefault((suite, operation, lang, size), []).append((sec, unit))
+        buckets.setdefault((suite, group, operation, lang, size), []).append((sec, unit))
 
     results: List[BenchmarkResult] = []
-    for (suite, operation, lang, size), entries in buckets.items():
+    for (suite, group, operation, lang, size), entries in buckets.items():
         times = [e[0] for e in entries]
         results.append(
             BenchmarkResult(
@@ -260,6 +296,7 @@ def _rows_to_results(raw_rows: List[Dict[str, object]]) -> List[BenchmarkResult]
                 time_sec=sum(times) / len(times),
                 unit=entries[0][1],
                 samples=len(times),
+                group=group,
             )
         )
     return results
@@ -397,6 +434,8 @@ class OperationData:
     suite: str
     #: Mapping ``language -> {size: time_sec}``.
     series: Dict[str, Dict[float, float]]
+    #: Source group (``"matrix_<scenario>"`` for scenario operations).
+    group: str = ""
 
     @property
     def sizes(self) -> List[float]:
@@ -443,7 +482,8 @@ def group_operations(results: List[BenchmarkResult]) -> Dict[str, OperationData]
     for r in results:
         od = ops.get(r.operation)
         if od is None:
-            od = OperationData(operation=r.operation, suite=r.suite, series={})
+            od = OperationData(operation=r.operation, suite=r.suite, series={},
+                               group=r.group)
             ops[r.operation] = od
         od.series.setdefault(r.language, {})[r.size] = r.time_sec
     return ops
@@ -674,6 +714,8 @@ def build_summary(ops: Dict[str, OperationData]) -> str:
     """
     lines = ["# Benchmark Summary", ""]
     for name, od in ops.items():
+        if is_scenario_operation(name):
+            continue  # reported in the "Scenario Results" section below
         ratios = od.speedups()
         title = title_for(od.operation).replace(" Performance", "")
         lines.append(f"## {title}")
@@ -695,7 +737,11 @@ def build_summary(ops: Dict[str, OperationData]) -> str:
         lines.append("Winner:")
         lines.append(winner_for(avg))
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    text = "\n".join(lines).rstrip() + "\n"
+    if any(is_scenario_operation(name) for name in ops):
+        import plot_scenarios  # deferred: plot_scenarios imports this module
+        text += "\n" + plot_scenarios.build_scenario_summary(ops)
+    return text
 
 
 def write_summary(ops: Dict[str, OperationData], out_dir: Path) -> Path:
@@ -716,24 +762,34 @@ def write_summary(ops: Dict[str, OperationData], out_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def generate_all(results: List[BenchmarkResult], out_dir: Path, *,
-                 chart: str = "line", article_mode: bool = False) -> List[Path]:
+                 chart: str = "line", article_mode: bool = False,
+                 images_dir: Optional[Path] = None) -> List[Path]:
     """Generate every plot plus the summary from parsed results.
+
+    Core operations get one chart each plus ``overall_speedup.png``; matrix scenario
+    operations (see :func:`is_scenario_operation`) are drawn by :mod:`plot_scenarios`
+    (heatmaps and one figure per scenario) and described in ``summary.md``.
 
     :param results: Aggregated benchmark results.
     :param out_dir: Output directory for PNGs and ``summary.md``.
     :param chart: ``"line"`` or ``"bar"`` style for per-operation charts.
     :param article_mode: Enable Dev.to-optimized styling.
+    :param images_dir: Directory holding the ``conv`` scenario's PGM images (the
+        ``conv_images.png`` panel is skipped when it is missing).
     :returns: List of all written file paths.
     """
     ops = group_operations(results)
+    core_ops = {name: od for name, od in ops.items() if not is_scenario_operation(name)}
     written: List[Path] = []
-    for od in ops.values():
+    for od in core_ops.values():
         written.append(plot_operation(od, out_dir, chart=chart,
                                        article_mode=article_mode))
-    overall = plot_overall_speedup(ops, out_dir, article_mode=article_mode)
+    overall = plot_overall_speedup(core_ops, out_dir, article_mode=article_mode)
     if overall is not None:
         written.append(overall)
     written.append(write_summary(ops, out_dir))
+    import plot_scenarios  # deferred: plot_scenarios imports this module
+    written.extend(plot_scenarios.generate_scenario_plots(ops, out_dir, images_dir=images_dir))
     return written
 
 
@@ -767,8 +823,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("error: no benchmark results found in input", file=sys.stderr)
         return 2
 
+    # run_all_benchmarks.py keeps the conv scenario's images next to the raw CSVs.
+    images_dir = args.input.resolve().parent / "matrix_raw" / "images"
     written = generate_all(results, args.out, chart=args.chart,
-                           article_mode=args.article_mode)
+                           article_mode=args.article_mode, images_dir=images_dir)
     for path in written:
         print(f"wrote {path}")
     return 0

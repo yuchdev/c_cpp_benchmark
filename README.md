@@ -45,16 +45,38 @@ This suite compares handwritten C matrix routines against [Eigen](https://eigen.
 | **C (runtime)**    | Hand-written row-major `double` matrices; naive O(N³) multiply; `calloc`/`free` lifecycle                   |
 | **C++ Dynamic**    | `Eigen::MatrixXd` - heap-allocated, column-major, SIMD-optimised, expression-template fusion                |
 | **C++ Fixed-size** | `Eigen::Matrix<double, N, N>` - stack/register allocated, fully unrolled, maximum compile-time optimisation |
+| **C (compile-time N)** | `FixedMatN` kernels instantiated for N = 2..16 from one template-like include, the fair C counterpart of the fixed-size row above |
 
 *   **Operations**: `transpose`, `add`, `sub`, `scale`, `matvec`, `mul`, `transpose_mul`, `add3`, `mul_add`.
-*   **Sizes**: fully configurable (default 32×32, 128×128, 512×512 dynamic; 3×3, 4×4, 8×8, 16×16 fixed-size).
+*   **Sizes**: fully configurable (default 32×32, 128×128, 512×512 dynamic grid); the compile-time-size sweep always covers every N = 2..16.
+
+### Scenarios
+
+Beyond the operation × size grid, seven paired **scenarios** each isolate one reason for (or limit
+to) the C++ advantage. Each is a sweep with C and C++ doing identical work on identical data, gets
+its own results group and figure, and runs by default (`--scenarios` selects a subset):
+
+| Scenario | What it shows |
+|:---|:---|
+| `chain` | `A1 + A2 + … + Ak` for k = 2..16 and several sizes: one fused expression vs k-1 passes through temporaries |
+| `fixed` | Compile-time N × N matrices, N = 2..16, all nine operations (C macro-unrolled vs Eigen fixed-size) |
+| `cliff` | Per-element time from L1-resident to DRAM-resident matrices (N = 16..2048) |
+| `batch` | One 4×4 transform over up to 1M points; Eigen works in place on the C buffer via `Map` |
+| `block` | Strided submatrix copy and multiply inside 512×512 matrices |
+| `tri` | Triangular solve and symmetric rank-k update (only half the matrix matters) |
+| `conv` | A 3×3 Gaussian blur of a generated image, with the actual images written out and compared |
+
+Scenarios are informational: they include cases where C ties or wins (3×3 convolution, small
+triangular solves, large block copies), reported rather than hidden. See
+[docs/matrix_benchmark_methodology.md](docs/matrix_benchmark_methodology.md#8-scenarios).
 
 ### Flexible CLI
 
 Both `c_matrix_bench` and `cpp_matrix_bench` share the same options:
 `--sizes` (list or `start:xMUL:steps` progression), `--ops`, `--warmup`,
 `--iters`, `--repeats`, `--heavy-divisor`, `--seed`, `--csv`,
-`--format table|csv|json`, `--no-fixed`, `--list-ops`, `--help`. Run
+`--format table|csv|json`, `--scenarios`, `--no-fixed`, `--image-dir`, `--list-ops`,
+`--list-scenarios`, `--help`. Run
 `./cpp_matrix_bench --help` for details. See
 [docs/matrix_optimization.md](docs/matrix_optimization.md).
 
@@ -204,17 +226,17 @@ python3 scripts/run_all_benchmarks.py --skip-matrix --build-dir cmake-build --ou
 
 `--all` runs both suites with the representative generic sizes above, sweeps every matrix
 operation (`--matrix-ops all`) across a wide dynamic size range (`--matrix-sizes
-4,8,16,32,64,128,256,512`, best-of-5 via `--matrix-repeats 5`; the fixed-size Eigen group always
-covers 3×3/4×4/8×8/16×16 regardless of `--matrix-sizes`), and generates plots — no other flags
-needed:
+4,8,16,32,64,128,256,512`, best-of-5 via `--matrix-repeats 5`) plus every scenario
+(`--matrix-scenarios all`; the compile-time-size sweep always covers N = 2..16 regardless of
+`--matrix-sizes`), and generates plots — no other flags needed:
 
 ```bash
 python3 scripts/run_all_benchmarks.py --build-dir cmake-build --output-dir benchmark-results --all
 ```
 
 Any of `--sort`/`--callback`/`--struct-api`/`--buffer`/`--table`/`--fir`/`--matrix-sizes`/
-`--matrix-ops`/`--matrix-repeats` passed alongside `--all` override just that one default; `--all`
-cannot be combined with `--skip-generic`/`--skip-matrix`.
+`--matrix-ops`/`--matrix-scenarios`/`--matrix-repeats` passed alongside `--all` override just that
+one default; `--all` cannot be combined with `--skip-generic`/`--skip-matrix`.
 
 ### Individual Execution
 
@@ -237,7 +259,10 @@ The unified runner produces the following artifacts in `--output-dir`:
 - `runs.csv` - Long-format per-run timing table.
 - `summary.csv` - Grouped summary statistics (mean, min, max, stdev).
 - `runs.json` - Averaged results across repeats in JSON format.
-- `results_{group}.csv` - Group-specific CSV files (e.g., `results_a.csv`).
+- `results_{group}.csv` - Group-specific CSV files (e.g., `results_a.csv`; each matrix scenario has
+  its own, e.g. `results_matrix_chain.csv`).
+- `matrix_raw/` - The raw per-language matrix CSVs and, in `matrix_raw/images/`, the PGM images of
+  the `conv` scenario.
 
 ### Report Compilation
 
@@ -259,8 +284,8 @@ python3 scripts/compile_report.py benchmark_results --groups a,b
 ### Visualization (Matplotlib)
 
 Generate publication-quality charts (one PNG per operation, an overall speedup
-bar chart, and a `summary.md`) from the results. Requires Matplotlib only
-(`python3 -m pip install matplotlib`):
+bar chart, a `summary.md`, plus a speedup heatmap and one figure per matrix scenario) from the
+results. Requires Matplotlib only (`python3 -m pip install matplotlib`):
 
 ```bash
 # Plot an existing results directory
@@ -284,9 +309,11 @@ details.
 ## 6. Interpretation Guidance
 
 - **Ratio (C / C++) > 1.0x**: C is slower than C++.
-- **Fixed-size vs Dynamic**: Eigen's fixed-size matrices (N ≤ 16) often show 2–10x gains due to loop unrolling and stack allocation.
+- **Fixed-size vs Dynamic**: Eigen's fixed-size matrices (N ≤ 16) often show 2–10x gains due to loop unrolling and stack allocation. Against a compile-time-N *C* baseline (the `fixed` scenario) the picture is more varied: roughly 2x for element-wise ops, up to ~9x for 4×4 products, and not a win everywhere.
 - **Matrix Multiply**: Eigen's blocked algorithms typically outperform naive C loops by 5–20x for N=512.
 - **Element-wise Ops**: Usually memory-bandwidth bound; expect ratios close to 1.0x for large matrices.
+- **Scenarios**: expect a mix. Fusion (`chain`), blocked GEMM (`block` mul) and the rank-k update
+  (`tri` syrk) are clear C++ wins; `block` copy and the 3×3 `conv` are not.
 
 ---
 
