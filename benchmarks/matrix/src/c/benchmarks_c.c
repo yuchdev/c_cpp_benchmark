@@ -13,6 +13,7 @@
 #include "bench_options.h"
 #include "bench_report.h"
 #include "bench_scenarios_c.h"
+#include "bench_scenarios.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -69,7 +70,7 @@ static void run_op(BenchReport *rp, const BenchOptions *o,
                    const char *op, size_t N) {
     if (!bench_op_enabled(o, op)) return;
 
-    int iters  = bench_iters_for(o, op, N);
+    int iters  = bench_iters_for_core(o, op, N);
     int warmup = bench_op_is_heavy(op) && N >= 256 ? (o->warmup > 1 ? 1 : o->warmup)
                                                    : o->warmup;
     char name[96];

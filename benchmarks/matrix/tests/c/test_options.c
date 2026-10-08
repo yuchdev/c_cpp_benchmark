@@ -249,6 +249,28 @@ static void test_iters_scaled(void) {
     check("iters_scaled_respects_iters_flag", bench_iters_scaled(&seven, 1.0e9) == 7);
 }
 
+static void test_core_iters_scaling(void) {
+    BenchOptions o;
+    const char *argv[] = {"bench", "--iters", "20", "--heavy-divisor", "4"};
+    parse_argv(&o, 5, argv);
+    /* large sizes keep exactly the historic counts */
+    check("core_iters_large_light_unchanged", bench_iters_for_core(&o, "add", 512) == 20);
+    check("core_iters_large_heavy_still_divided", bench_iters_for_core(&o, "mul", 512) == 5);
+    /* cheap sizes get more iterations so the timed sample is well above clock resolution */
+    check("core_iters_small_is_scaled_up", bench_iters_for_core(&o, "add", 32) > 20 * 100);
+    check("core_iters_small_heavy_is_scaled_up", bench_iters_for_core(&o, "mul", 8) > 20 * 100);
+    int monotone = 1;
+    int prev = bench_iters_for_core(&o, "add", 512);
+    for (size_t n = 256; n >= 4; n /= 2) {
+        int it = bench_iters_for_core(&o, "add", n);
+        if (it < prev) monotone = 0;
+        prev = it;
+    }
+    check("core_iters_monotone_as_size_shrinks", monotone);
+    check("scale_for_work_is_one_for_big_work", bench_scale_for_work(1.0e9) == 1.0);
+    check("scale_for_work_is_capped", bench_scale_for_work(0.0) == BENCH_SCALE_MAX);
+}
+
 static void test_scn_name_grammar(void) {
     char b[96];
     bench_scn_name(b, sizeof(b), "c", "chain", "add", 256, 8, 256);
@@ -320,6 +342,7 @@ int main(void) {
     test_image_dir_and_list_scenarios();
     test_scenario_names_table();
     test_iters_scaled();
+    test_core_iters_scaling();
     test_scn_name_grammar();
     test_sweep_constants();
     test_work_estimates();

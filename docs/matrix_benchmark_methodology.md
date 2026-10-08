@@ -69,7 +69,7 @@ Both `c_matrix_bench` and `cpp_matrix_bench` accept the same options:
 | `--sizes <list>` | Square sizes `a,b,c` **or** a geometric progression `start:xMUL:steps` (e.g. `64:x2:4` → 64,128,256,512) | `32,128,512` |
 | `--ops <list>` | Comma-separated operation names, or `all` | `all` |
 | `--warmup <n>` | Untimed warmup iterations | `3` |
-| `--iters <n>` | Measured iterations per repeat (the scenario sweeps multiply it for cheap calls, see below) | `20` |
+| `--iters <n>` | Measured iterations per repeat for large sizes; cheap sizes are multiplied automatically (see below) | `20` |
 | `--repeats <n>` | Independent repeats; the **best** (min) average is reported | `1` |
 | `--heavy-divisor <n>` | Divide `--iters` for O(N³) ops (`mul`, `transpose_mul`, `mul_add`) when N ≥ 256 | `4` |
 | `--seed <n>` | Base RNG seed (shared LCG) | `1` |
@@ -88,12 +88,13 @@ Available operations: `transpose`, `add`, `sub`, `scale`, `matvec`, `mul`,
 `--sizes` shapes the **core** grid only; `--ops` filters the core grid, the `fixed` sweep and the
 `cliff` sweep. The other scenarios have fixed sweeps defined once in `bench_scenarios.h`.
 
-**Iteration scaling (scenarios).** A call that takes a few hundred nanoseconds cannot be timed with
-20 iterations: `clock_gettime(CLOCK_MONOTONIC)` ticks at only ~1 µs on macOS, so such a sample is
-mostly quantisation noise. The scenario sweeps therefore multiply `--iters` by up to 65536×
-(`bench_iters_scaled()` in `bench_options.h`, driven by a rough work estimate per call) so every
-timed sample spans well over the clock resolution; the `iterations` column of the CSV records what
-was actually run. The core grid uses the plain `--iters` count.
+**Iteration scaling.** A call that takes a few hundred nanoseconds cannot be timed with 20
+iterations: `clock_gettime(CLOCK_MONOTONIC)` ticks at only ~1 µs on macOS, so such a sample is
+mostly quantisation noise (a 4×4 `add` used to read `0.0 ns`). `--iters` is therefore the count
+for *large* sizes, and cheaper calls are multiplied by up to 65536× (`bench_iters_scaled()` in
+`bench_options.h`, driven by a rough work estimate per call) so every timed sample spans well over
+the clock resolution. Large sizes keep exactly the historic counts; the `iterations` column of the
+CSV records what was actually run.
 
 Options accept both `--key value` and `--key=value` forms, and a single bare
 positional argument is still treated as the CSV path for backward
@@ -208,8 +209,9 @@ integration test's overall C++-superiority percentage at sizes of 256 and above.
 - **Ratio (C / C++) > 1** ⇒ C++ is faster (the common case for compute-bound
   work, where it is 5–10× ahead).
 - **Ratio ≈ 1** ⇒ memory-bandwidth-bound element-wise ops.
-- Sub-microsecond rows (e.g. 4×4) are dominated by timer granularity; raise
-  `--iters` / `--repeats` for stable small-matrix figures.
+- Sub-microsecond rows (e.g. 4×4) used to be dominated by timer granularity; cheap sizes now
+  get proportionally more iterations (§3), so they are measurable. Single-digit-nanosecond kernels
+  remain noisy run to run: raise `--repeats`.
 
 ---
 

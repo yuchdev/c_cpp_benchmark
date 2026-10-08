@@ -112,8 +112,8 @@ These rules apply to all benchmark code — never violate them:
 7. **Barriers around cheap kernels** — scenario timing loops call `BENCH_ESCAPE(buffer)` once and
    `BENCH_CLOBBER()` after every timed call, in both languages (`BENCH_MEASURE` in C, `measure()` in
    C++); otherwise the optimizer can hoist tiny-matrix work out of the loop.
-8. **Iterations scale with cost** — in the scenario sweeps `--iters` is the count for large sizes;
-   cheap calls get more (`bench_iters_scaled`). Never hard-code 20 iterations for tiny matrices.
+8. **Iterations scale with cost** — `--iters` is the count for large sizes; cheap calls get more
+   (`bench_iters_scaled` / `bench_iters_for_core`). Never hard-code 20 iterations for tiny matrices.
 9. **One source of truth for scenarios** — sweep points, row names (`bench_scn_name()`) and work
    estimates live only in `benchmarks/matrix/benchmarks/bench_scenarios.h`; both drivers include it,
    and `scripts/run_all_benchmarks.py::classify_matrix_row` parses the names.

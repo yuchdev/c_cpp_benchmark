@@ -20,6 +20,7 @@
 #include "bench_options.h"
 #include "bench_report.h"
 #include "bench_scenarios_cpp.hpp"
+#include "bench_scenarios.h"
 #include <Eigen/Dense>
 #include <chrono>
 #include <cstdio>
@@ -75,7 +76,7 @@ static void run_dynamic_op(BenchReport &rp, const BenchOptions &o,
                            const std::string &op, int N) {
     if (!bench_op_enabled(&o, op.c_str())) return;
 
-    const int iters  = bench_iters_for(&o, op.c_str(), (size_t)N);
+    const int iters  = bench_iters_for_core(&o, op.c_str(), (size_t)N);
     const int warmup = (bench_op_is_heavy(op.c_str()) && N >= 256)
                        ? std::min(o.warmup, 1) : o.warmup;
     const std::string nm = "cpp_dynamic_" + op + "_" + std::to_string(N) + "x" + std::to_string(N);

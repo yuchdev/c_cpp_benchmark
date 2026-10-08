@@ -115,6 +115,15 @@ static inline void bench_scn_name(char *buf, size_t cap, const char *lang,
 static inline double bench_work_op(const char *op, double n) {
     return bench_op_is_heavy(op) ? n * n * n : n * n;
 }
+/* Iteration count for the core op x size grid: the usual --iters / --heavy-divisor
+ * count (bench_iters_for), multiplied up for sizes whose single call is too cheap to
+ * time reliably.  Large sizes are unchanged. */
+static inline int bench_iters_for_core(const BenchOptions *o, const char *op, size_t n) {
+    double it = (double)bench_iters_for(o, op, n) *
+                bench_scale_for_work(bench_work_op(op, (double)n));
+    if (it > 2.0e9) it = 2.0e9;
+    return (int)it;
+}
 static inline double bench_work_chain(int k, double n) { return (double)k * n * n; }
 static inline double bench_work_block(const char *variant, double bs) {
     return strcmp(variant, "mul") == 0 ? bs * bs * bs : bs * bs;

@@ -172,8 +172,8 @@ C++ win held with a wide margin; cases where C wins or ties are documented, not 
    `BENCH_CLOBBER()` after every timed call, in both languages (`BENCH_MEASURE` in C, `measure()` in
    C++). Otherwise the optimizer can hoist loop-invariant tiny-matrix work out of the loop and the
    benchmark measures nothing. C scenario code uses that macro, not a function-pointer callback.
-9. **Iterations scale with cost.** In the scenario sweeps `--iters` is the count for large sizes;
-   cheap calls get more (`bench_iters_scaled`) so a timed sample spans well over the ~1 µs clock
+9. **Iterations scale with cost.** `--iters` is the count for large sizes; cheap calls get more
+   (`bench_iters_scaled`, `bench_iters_for_core`) so a timed sample spans well over the ~1 µs clock
    resolution of macOS. Do not hard-code 20 iterations for tiny matrices.
 10. **One source of truth for scenarios.** Sweep points, row names (`bench_scn_name()`) and work
     estimates live only in `benchmarks/matrix/benchmarks/bench_scenarios.h`; both drivers include it.
